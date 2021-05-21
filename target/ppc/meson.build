@@ -2,10 +2,12 @@ ppc_ss = ss.source_set()
 ppc_ss.add(files(
   'cpu-models.c',
   'cpu.c',
+  'cpu_init.c',
   'dfp_helper.c',
   'excp_helper.c',
   'fpu_helper.c',
   'gdbstub.c',
+  'helper_regs.c',
   'int_helper.c',
   'mem_helper.c',
   'misc_helper.c',
