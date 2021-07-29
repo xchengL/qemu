@@ -37,7 +37,6 @@
 
 #include "exec/helper-gen.h"
 
-#include "trace-tcg.h"
 #include "exec/log.h"
 
 
@@ -482,7 +481,7 @@ static void t_gen_swapr(TCGv d, TCGv s)
 
 static bool use_goto_tb(DisasContext *dc, target_ulong dest)
 {
-    return ((dest ^ dc->base.pc_first) & TARGET_PAGE_MASK) == 0;
+    return translator_use_goto_tb(&dc->base, dest);
 }
 
 static void gen_goto_tb(DisasContext *dc, int n, target_ulong dest)
@@ -3119,25 +3118,6 @@ static void cris_tr_insn_start(DisasContextBase *dcbase, CPUState *cpu)
     tcg_gen_insn_start(dc->delayed_branch == 1 ? dc->ppc | 1 : dc->pc);
 }
 
-static bool cris_tr_breakpoint_check(DisasContextBase *dcbase, CPUState *cpu,
-                                     const CPUBreakpoint *bp)
-{
-    DisasContext *dc = container_of(dcbase, DisasContext, base);
-
-    cris_evaluate_flags(dc);
-    tcg_gen_movi_tl(env_pc, dc->pc);
-    t_gen_raise_exception(EXCP_DEBUG);
-    dc->base.is_jmp = DISAS_NORETURN;
-    /*
-     * The address covered by the breakpoint must be included in
-     * [tb->pc, tb->pc + tb->size) in order to for it to be
-     * properly cleared -- thus we increment the PC here so that
-     * the logic setting tb->size below does the right thing.
-     */
-    dc->pc += 2;
-    return true;
-}
-
 static void cris_tr_translate_insn(DisasContextBase *dcbase, CPUState *cs)
 {
     DisasContext *dc = container_of(dcbase, DisasContext, base);
@@ -3235,8 +3215,7 @@ static void cris_tr_tb_stop(DisasContextBase *dcbase, CPUState *cpu)
              * Use a conditional branch if either taken or not-taken path
              * can use goto_tb.  If neither can, then treat it as indirect.
              */
-            if (likely(!dc->base.singlestep_enabled)
-                && likely(!dc->cpustate_changed)
+            if (likely(!dc->cpustate_changed)
                 && (use_goto_tb(dc, dc->jmp_pc) || use_goto_tb(dc, npc))) {
                 TCGLabel *not_taken = gen_new_label();
 
@@ -3317,7 +3296,6 @@ static const TranslatorOps cris_tr_ops = {
     .init_disas_context = cris_tr_init_disas_context,
     .tb_start           = cris_tr_tb_start,
     .insn_start         = cris_tr_insn_start,
-    .breakpoint_check   = cris_tr_breakpoint_check,
     .translate_insn     = cris_tr_translate_insn,
     .tb_stop            = cris_tr_tb_stop,
     .disas_log          = cris_tr_disas_log,

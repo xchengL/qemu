@@ -34,7 +34,6 @@
 #include "exec/helper-proto.h"
 #include "exec/helper-gen.h"
 
-#include "trace-tcg.h"
 #include "exec/log.h"
 
 
@@ -292,6 +291,9 @@ void store_reg(DisasContext *s, int reg, TCGv_i32 var)
          */
         tcg_gen_andi_i32(var, var, s->thumb ? ~1 : ~3);
         s->base.is_jmp = DISAS_JUMP;
+    } else if (reg == 13 && arm_dc_feature(s, ARM_FEATURE_M)) {
+        /* For M-profile SP bits [1:0] are always zero */
+        tcg_gen_andi_i32(var, var, ~3);
     }
     tcg_gen_mov_i32(cpu_R[reg], var);
     tcg_temp_free_i32(var);
@@ -2579,16 +2581,6 @@ static int disas_dsp_insn(DisasContext *s, uint32_t insn)
     return 1;
 }
 
-static inline bool use_goto_tb(DisasContext *s, target_ulong dest)
-{
-#ifndef CONFIG_USER_ONLY
-    return (s->base.tb->pc & TARGET_PAGE_MASK) == (dest & TARGET_PAGE_MASK) ||
-           ((s->base.pc_next - 1) & TARGET_PAGE_MASK) == (dest & TARGET_PAGE_MASK);
-#else
-    return true;
-#endif
-}
-
 static void gen_goto_ptr(void)
 {
     tcg_gen_lookup_and_goto_ptr();
@@ -2600,7 +2592,7 @@ static void gen_goto_ptr(void)
  */
 static void gen_goto_tb(DisasContext *s, int n, target_ulong dest)
 {
-    if (use_goto_tb(s, dest)) {
+    if (translator_use_goto_tb(&s->base, dest)) {
         tcg_gen_goto_tb(n);
         gen_set_pc_im(s, dest);
         tcg_gen_exit_tb(s->base.tb, n);
@@ -8905,7 +8897,7 @@ static bool trans_ISB(DisasContext *s, arg_ISB *a)
      * self-modifying code correctly and also to take
      * any pending interrupts immediately.
      */
-    gen_goto_tb(s, 0, s->base.pc_next);
+    s->base.is_jmp = DISAS_TOO_MANY;
     return true;
 }
 
@@ -8919,7 +8911,7 @@ static bool trans_SB(DisasContext *s, arg_SB *a)
      * for TCG; MB and end the TB instead.
      */
     tcg_gen_mb(TCG_MO_ALL | TCG_BAR_SC);
-    gen_goto_tb(s, 0, s->base.pc_next);
+    s->base.is_jmp = DISAS_TOO_MANY;
     return true;
 }
 
@@ -9449,33 +9441,6 @@ static void arm_tr_insn_start(DisasContextBase *dcbase, CPUState *cpu)
     dc->insn_start = tcg_last_op();
 }
 
-static bool arm_tr_breakpoint_check(DisasContextBase *dcbase, CPUState *cpu,
-                                    const CPUBreakpoint *bp)
-{
-    DisasContext *dc = container_of(dcbase, DisasContext, base);
-
-    if (bp->flags & BP_CPU) {
-        gen_set_condexec(dc);
-        gen_set_pc_im(dc, dc->base.pc_next);
-        gen_helper_check_breakpoints(cpu_env);
-        /* End the TB early; it's likely not going to be executed */
-        dc->base.is_jmp = DISAS_TOO_MANY;
-    } else {
-        gen_exception_internal_insn(dc, dc->base.pc_next, EXCP_DEBUG);
-        /* The address covered by the breakpoint must be
-           included in [tb->pc, tb->pc + tb->size) in order
-           to for it to be properly cleared -- thus we
-           increment the PC here so that the logic setting
-           tb->size below does the right thing.  */
-        /* TODO: Advance PC by correct instruction length to
-         * avoid disassembler error messages */
-        dc->base.pc_next += 2;
-        dc->base.is_jmp = DISAS_NORETURN;
-    }
-
-    return true;
-}
-
 static bool arm_pre_translate_insn(DisasContext *dc)
 {
 #ifdef CONFIG_USER_ONLY
@@ -9838,7 +9803,6 @@ static const TranslatorOps arm_translator_ops = {
     .init_disas_context = arm_tr_init_disas_context,
     .tb_start           = arm_tr_tb_start,
     .insn_start         = arm_tr_insn_start,
-    .breakpoint_check   = arm_tr_breakpoint_check,
     .translate_insn     = arm_tr_translate_insn,
     .tb_stop            = arm_tr_tb_stop,
     .disas_log          = arm_tr_disas_log,
@@ -9848,7 +9812,6 @@ static const TranslatorOps thumb_translator_ops = {
     .init_disas_context = arm_tr_init_disas_context,
     .tb_start           = arm_tr_tb_start,
     .insn_start         = arm_tr_insn_start,
-    .breakpoint_check   = arm_tr_breakpoint_check,
     .translate_insn     = thumb_tr_translate_insn,
     .tb_stop            = arm_tr_tb_stop,
     .disas_log          = arm_tr_disas_log,

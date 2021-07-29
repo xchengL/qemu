@@ -65,15 +65,63 @@ static inline void svm_load_seg_cache(CPUX86State *env, hwaddr addr,
                            sc->base, sc->limit, sc->flags);
 }
 
+static inline bool ctl_has_irq(uint32_t int_ctl)
+{
+    uint32_t int_prio;
+    uint32_t tpr;
+
+    int_prio = (int_ctl & V_INTR_PRIO_MASK) >> V_INTR_MASKING_SHIFT;
+    tpr = int_ctl & V_TPR_MASK;
+    return (int_ctl & V_IRQ_MASK) && (int_prio >= tpr);
+}
+
+static inline bool is_efer_invalid_state (CPUX86State *env)
+{
+    if (!(env->efer & MSR_EFER_SVME)) {
+        return true;
+    }
+
+    if (env->efer & MSR_EFER_RESERVED) {
+        return true;
+    }
+
+    if ((env->efer & (MSR_EFER_LMA | MSR_EFER_LME)) &&
+            !(env->features[FEAT_8000_0001_EDX] & CPUID_EXT2_LM)) {
+        return true;
+    }
+
+    if ((env->efer & MSR_EFER_LME) && (env->cr[0] & CR0_PG_MASK)
+                                && !(env->cr[4] & CR4_PAE_MASK)) {
+        return true;
+    }
+
+    if ((env->efer & MSR_EFER_LME) && (env->cr[0] & CR0_PG_MASK)
+                                && !(env->cr[0] & CR0_PE_MASK)) {
+        return true;
+    }
+
+    if ((env->efer & MSR_EFER_LME) && (env->cr[0] & CR0_PG_MASK)
+                                && (env->cr[4] & CR4_PAE_MASK)
+                                && (env->segs[R_CS].flags & DESC_L_MASK)
+                                && (env->segs[R_CS].flags & DESC_B_MASK)) {
+        return true;
+    }
+
+    return false;
+}
+
 void helper_vmrun(CPUX86State *env, int aflag, int next_eip_addend)
 {
     CPUState *cs = env_cpu(env);
+    X86CPU *cpu = env_archcpu(env);
     target_ulong addr;
     uint64_t nested_ctl;
     uint32_t event_inj;
     uint32_t int_ctl;
     uint32_t asid;
     uint64_t new_cr0;
+    uint64_t new_cr3;
+    uint64_t new_cr4;
 
     cpu_svm_check_intercept_param(env, SVM_EXIT_VMRUN, 0, GETPC());
 
@@ -159,6 +207,20 @@ void helper_vmrun(CPUX86State *env, int aflag, int next_eip_addend)
     asid = x86_ldq_phys(cs, env->vm_vmcb + offsetof(struct vmcb,
                                                           control.asid));
 
+    uint64_t msrpm_base_pa = x86_ldq_phys(cs, env->vm_vmcb +
+                                    offsetof(struct vmcb,
+                                            control.msrpm_base_pa));
+    uint64_t iopm_base_pa = x86_ldq_phys(cs, env->vm_vmcb +
+                                 offsetof(struct vmcb, control.iopm_base_pa));
+
+    if ((msrpm_base_pa & ~0xfff) >= (1ull << cpu->phys_bits) - SVM_MSRPM_SIZE) {
+        cpu_vmexit(env, SVM_EXIT_ERR, 0, GETPC());
+    }
+
+    if ((iopm_base_pa & ~0xfff) >= (1ull << cpu->phys_bits) - SVM_IOPM_SIZE) {
+        cpu_vmexit(env, SVM_EXIT_ERR, 0, GETPC());
+    }
+
     env->nested_pg_mode = 0;
 
     if (!cpu_svm_has_intercept(env, SVM_EXIT_VMRUN)) {
@@ -200,17 +262,22 @@ void helper_vmrun(CPUX86State *env, int aflag, int next_eip_addend)
     if ((new_cr0 & CR0_NW_MASK) && !(new_cr0 & CR0_CD_MASK)) {
         cpu_vmexit(env, SVM_EXIT_ERR, 0, GETPC());
     }
+    new_cr3 = x86_ldq_phys(cs, env->vm_vmcb + offsetof(struct vmcb, save.cr3));
+    if ((env->efer & MSR_EFER_LMA) &&
+            (new_cr3 & ((~0UL) << cpu->phys_bits))) {
+        cpu_vmexit(env, SVM_EXIT_ERR, 0, GETPC());
+    }
+    new_cr4 = x86_ldq_phys(cs, env->vm_vmcb + offsetof(struct vmcb, save.cr4));
+    if (new_cr4 & cr4_reserved_bits(env)) {
+        cpu_vmexit(env, SVM_EXIT_ERR, 0, GETPC());
+    }
     /* clear exit_info_2 so we behave like the real hardware */
     x86_stq_phys(cs,
              env->vm_vmcb + offsetof(struct vmcb, control.exit_info_2), 0);
 
     cpu_x86_update_cr0(env, new_cr0);
-    cpu_x86_update_cr4(env, x86_ldq_phys(cs,
-                                     env->vm_vmcb + offsetof(struct vmcb,
-                                                             save.cr4)));
-    cpu_x86_update_cr3(env, x86_ldq_phys(cs,
-                                     env->vm_vmcb + offsetof(struct vmcb,
-                                                             save.cr3)));
+    cpu_x86_update_cr4(env, new_cr4);
+    cpu_x86_update_cr3(env, new_cr3);
     env->cr[2] = x86_ldq_phys(cs,
                           env->vm_vmcb + offsetof(struct vmcb, save.cr2));
     int_ctl = x86_ldl_phys(cs,
@@ -254,7 +321,18 @@ void helper_vmrun(CPUX86State *env, int aflag, int next_eip_addend)
     env->dr[6] = x86_ldq_phys(cs,
                           env->vm_vmcb + offsetof(struct vmcb, save.dr6));
 
-    /* FIXME: guest state consistency checks */
+#ifdef TARGET_X86_64
+    if (env->dr[6] & DR_RESERVED_MASK) {
+        cpu_vmexit(env, SVM_EXIT_ERR, 0, GETPC());
+    }
+    if (env->dr[7] & DR_RESERVED_MASK) {
+        cpu_vmexit(env, SVM_EXIT_ERR, 0, GETPC());
+    }
+#endif
+
+    if (is_efer_invalid_state(env)) {
+        cpu_vmexit(env, SVM_EXIT_ERR, 0, GETPC());
+    }
 
     switch (x86_ldub_phys(cs,
                       env->vm_vmcb + offsetof(struct vmcb, control.tlb_ctl))) {
@@ -268,7 +346,7 @@ void helper_vmrun(CPUX86State *env, int aflag, int next_eip_addend)
 
     env->hflags2 |= HF2_GIF_MASK;
 
-    if (int_ctl & V_IRQ_MASK) {
+    if (ctl_has_irq(int_ctl)) {
         CPUState *cs = env_cpu(env);
 
         cs->interrupt_request |= CPU_INTERRUPT_VIRQ;
