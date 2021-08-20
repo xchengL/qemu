@@ -824,7 +824,7 @@ endif
 
 gnutls = not_found
 gnutls_crypto = not_found
-if not get_option('gnutls').auto() or have_system
+if get_option('gnutls').enabled() or (get_option('gnutls').auto() and have_system)
   # For general TLS support our min gnutls matches
   # that implied by our platform support matrix
   #
@@ -1824,6 +1824,8 @@ if have_system
     slirp_deps = []
     if targetos == 'windows'
       slirp_deps = cc.find_library('iphlpapi')
+    elif targetos == 'darwin'
+      slirp_deps = cc.find_library('resolv')
     endif
     slirp_conf = configuration_data()
     slirp_conf.set('SLIRP_MAJOR_VERSION', meson.project_version().split('.')[0])
