@@ -160,6 +160,11 @@ Use ``-display sdl`` instead.
 
 Use ``-display curses`` instead.
 
+``-watchdog`` (since 6.2)
+'''''''''''''''''''''''''
+
+Use ``-device`` instead.
+
 ``-smp`` ("parameter=0" SMP configurations) (since 6.2)
 '''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
@@ -227,6 +232,12 @@ Use arguments ``base-node`` and ``top-node`` instead.
 Use the more generic commands ``block-export-add`` and ``block-export-del``
 instead.  As part of this deprecation, where ``nbd-server-add`` used a
 single ``bitmap``, the new ``block-export-add`` uses a list of ``bitmaps``.
+
+``query-qmp-schema`` return value member ``values`` (since 6.2)
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+
+Member ``values`` in return value elements with meta-type ``enum`` is
+deprecated.  Use ``members`` instead.
 
 System accelerators
 -------------------
@@ -306,6 +317,16 @@ full SCSI support.  Use virtio-scsi instead when SCSI passthrough is required.
 
 Note this also applies to ``-device virtio-blk-pci,scsi=on|off``, which is an
 alias.
+
+``-device sga`` (since 6.2)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``sga`` device loads an option ROM for x86 targets which enables
+SeaBIOS to send messages to the serial console. SeaBIOS 1.11.0 onwards
+contains native support for this feature and thus use of the option
+ROM approach is obsolete. The native SeaBIOS support can be activated
+by using ``-machine graphics=off``.
+
 
 Block device options
 ''''''''''''''''''''
