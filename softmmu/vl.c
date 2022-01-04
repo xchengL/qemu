@@ -727,6 +727,9 @@ static QemuOptsList qemu_smp_opts = {
             .name = "dies",
             .type = QEMU_OPT_NUMBER,
         }, {
+            .name = "clusters",
+            .type = QEMU_OPT_NUMBER,
+        }, {
             .name = "cores",
             .type = QEMU_OPT_NUMBER,
         }, {
@@ -3766,6 +3769,7 @@ void qemu_init(int argc, char **argv, char **envp)
 
     if (vmstate_dump_file) {
         /* dump and exit */
+        module_load_qom_all();
         dump_vmstate_json_to_file(vmstate_dump_file);
         exit(0);
     }

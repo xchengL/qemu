@@ -1,7 +1,10 @@
 project('qemu', ['c'], meson_version: '>=0.58.2',
         default_options: ['warning_level=1', 'c_std=gnu11', 'cpp_std=gnu++11', 'b_colorout=auto',
-                          'b_staticpic=false'],
+                          'b_staticpic=false', 'stdsplit=false'],
         version: files('VERSION'))
+
+add_test_setup('quick', exclude_suites: 'slow', is_default: true)
+add_test_setup('slow', env: ['G_TEST_SLOW=1', 'SPEED=slow'])
 
 not_found = dependency('', required: false)
 keyval = import('keyval')
@@ -56,10 +59,26 @@ python = import('python').find_installation()
 
 supported_oses = ['windows', 'freebsd', 'netbsd', 'openbsd', 'darwin', 'sunos', 'linux']
 supported_cpus = ['ppc', 'ppc64', 's390x', 'riscv', 'x86', 'x86_64',
-  'arm', 'aarch64', 'mips', 'mips64', 'sparc', 'sparc64']
+  'arm', 'aarch64', 'loongarch64', 'mips', 'mips64', 'sparc', 'sparc64']
 
 cpu = host_machine.cpu_family()
+
+# Unify riscv* to a single family.
+if cpu in ['riscv32', 'riscv64']
+  cpu = 'riscv'
+endif
+
 targetos = host_machine.system()
+
+if cpu not in supported_cpus
+  host_arch = 'unknown'
+elif cpu == 'x86'
+  host_arch = 'i386'
+elif cpu == 'mips64'
+  host_arch = 'mips'
+else
+  host_arch = cpu
+endif
 
 if cpu in ['x86', 'x86_64']
   kvm_targets = ['i386-softmmu', 'x86_64-softmmu']
@@ -197,6 +216,10 @@ add_project_arguments('-iquote', '.',
 link_language = meson.get_external_property('link_language', 'cpp')
 if link_language == 'cpp'
   add_languages('cpp', required: true, native: false)
+  cxx = meson.get_compiler('cpp')
+  linker = cxx
+else
+  linker = cc
 endif
 if host_machine.system() == 'darwin'
   add_languages('objc', required: false, native: false)
@@ -319,24 +342,22 @@ if not get_option('hax').disabled()
   endif
 endif
 if targetos == 'netbsd'
-  if cc.has_header_symbol('nvmm.h', 'nvmm_cpu_stop', required: get_option('nvmm'))
-    nvmm = cc.find_library('nvmm', required: get_option('nvmm'))
-  endif
+  nvmm = cc.find_library('nvmm', required: get_option('nvmm'))
   if nvmm.found()
     accelerators += 'CONFIG_NVMM'
   endif
 endif
 
-tcg_arch = config_host['ARCH']
+tcg_arch = host_arch
 if not get_option('tcg').disabled()
-  if cpu not in supported_cpus
+  if host_arch == 'unknown'
     if get_option('tcg_interpreter')
-      warning('Unsupported CPU @0@, will use TCG with TCI (experimental and slow)'.format(cpu))
+      warning('Unsupported CPU @0@, will use TCG with TCI (slow)'.format(cpu))
     else
       error('Unsupported CPU @0@, try --enable-tcg-interpreter'.format(cpu))
     endif
   elif get_option('tcg_interpreter')
-    warning('Use of the TCG interpretor is not recommended on this host')
+    warning('Use of the TCG interpreter is not recommended on this host')
     warning('architecture. There is a native TCG execution backend available')
     warning('which provides substantially better performance and reliability.')
     warning('It is strongly recommended to remove the --enable-tcg-interpreter')
@@ -345,11 +366,11 @@ if not get_option('tcg').disabled()
   endif
   if get_option('tcg_interpreter')
     tcg_arch = 'tci'
-  elif config_host['ARCH'] == 'sparc64'
+  elif host_arch == 'sparc64'
     tcg_arch = 'sparc'
-  elif config_host['ARCH'] in ['x86_64', 'x32']
+  elif host_arch == 'x86_64'
     tcg_arch = 'i386'
-  elif config_host['ARCH'] == 'ppc64'
+  elif host_arch == 'ppc64'
     tcg_arch = 'ppc'
   endif
   add_project_arguments('-iquote', meson.current_source_dir() / 'tcg' / tcg_arch,
@@ -388,14 +409,16 @@ endif
 add_project_arguments(config_host['GLIB_CFLAGS'].split(),
                       native: false, language: ['c', 'cpp', 'objc'])
 glib = declare_dependency(compile_args: config_host['GLIB_CFLAGS'].split(),
-                          link_args: config_host['GLIB_LIBS'].split())
+                          link_args: config_host['GLIB_LIBS'].split(),
+                          version: config_host['GLIB_VERSION'])
 # override glib dep with the configure results (for subprojects)
 meson.override_dependency('glib-2.0', glib)
 
 gio = not_found
 if 'CONFIG_GIO' in config_host
   gio = declare_dependency(compile_args: config_host['GIO_CFLAGS'].split(),
-                           link_args: config_host['GIO_LIBS'].split())
+                           link_args: config_host['GIO_LIBS'].split(),
+                           version: config_host['GLIB_VERSION'])
 endif
 lttng = not_found
 if 'ust' in get_option('trace_backends')
@@ -562,13 +585,7 @@ endif
 spice_headers = spice.partial_dependency(compile_args: true, includes: true)
 
 rt = cc.find_library('rt', required: false)
-libdl = not_found
-if 'CONFIG_PLUGIN' in config_host
-  libdl = cc.find_library('dl', required: false)
-  if not cc.has_function('dlopen', dependencies: libdl)
-    error('dlopen not found')
-  endif
-endif
+
 libiscsi = not_found
 if not get_option('libiscsi').auto() or have_block
   libiscsi = dependency('libiscsi', version: '>=1.9.0',
@@ -677,6 +694,9 @@ iconv = not_found
 curses = not_found
 if have_system and not get_option('curses').disabled()
   curses_test = '''
+    #if defined(__APPLE__) || defined(__OpenBSD__)
+    #define _XOPEN_SOURCE_EXTENDED 1
+    #endif
     #include <locale.h>
     #include <curses.h>
     #include <wchar.h>
@@ -700,7 +720,7 @@ if have_system and not get_option('curses').disabled()
     endif
   endforeach
   msg = get_option('curses').enabled() ? 'curses library not found' : ''
-  curses_compile_args = ['-DNCURSES_WIDECHAR']
+  curses_compile_args = ['-DNCURSES_WIDECHAR=1']
   if curses.found()
     if cc.links(curses_test, args: curses_compile_args, dependencies: [curses])
       curses = declare_dependency(compile_args: curses_compile_args, dependencies: [curses])
@@ -869,11 +889,15 @@ if not get_option('glusterfs').auto() or have_block
     ''', dependencies: glusterfs)
   endif
 endif
+
 libssh = not_found
-if 'CONFIG_LIBSSH' in config_host
-  libssh = declare_dependency(compile_args: config_host['LIBSSH_CFLAGS'].split(),
-                              link_args: config_host['LIBSSH_LIBS'].split())
+if not get_option('libssh').auto() or have_block
+  libssh = dependency('libssh', version: '>=0.8.7',
+                    method: 'pkg-config',
+                    required: get_option('libssh'),
+                    kwargs: static_kwargs)
 endif
+
 libbzip2 = not_found
 if not get_option('bzip2').auto() or have_block
   libbzip2 = cc.find_library('bz2', has_headers: ['bzlib.h'],
@@ -1109,7 +1133,7 @@ if not get_option('snappy').auto() or have_system
                            required: get_option('snappy'),
                            kwargs: static_kwargs)
 endif
-if snappy.found() and not cc.links('''
+if snappy.found() and not linker.links('''
    #include <snappy-c.h>
    int main(void) { snappy_max_compressed_length(4096); return 0; }''', dependencies: snappy)
   snappy = not_found
@@ -1196,6 +1220,11 @@ keyutils = dependency('libkeyutils', required: false,
                       method: 'pkg-config', kwargs: static_kwargs)
 
 has_gettid = cc.has_function('gettid')
+
+# libselinux
+selinux = dependency('libselinux',
+                     required: get_option('selinux'),
+                     method: 'pkg-config', kwargs: static_kwargs)
 
 # Malloc tests
 
@@ -1373,6 +1402,15 @@ endif
 have_host_block_device = (targetos != 'darwin' or
     cc.has_header('IOKit/storage/IOMedia.h'))
 
+dbus_display = false
+if not get_option('dbus_display').disabled()
+  # FIXME enable_modules shouldn't be necessary, but: https://github.com/mesonbuild/meson/issues/8333
+  dbus_display = gio.version().version_compare('>=2.64') and config_host.has_key('GDBUS_CODEGEN') and enable_modules
+  if get_option('dbus_display').enabled() and not dbus_display
+    error('Requirements missing to enable -display dbus (glib>=2.64 && --enable-modules)')
+  endif
+endif
+
 have_virtfs = (targetos == 'linux' and
     have_system and
     libattr.found() and
@@ -1412,6 +1450,8 @@ config_host_data.set_quoted('CONFIG_QEMU_LOCALSTATEDIR', get_option('prefix') / 
 config_host_data.set_quoted('CONFIG_QEMU_MODDIR', get_option('prefix') / qemu_moddir)
 config_host_data.set_quoted('CONFIG_SYSCONFDIR', get_option('prefix') / get_option('sysconfdir'))
 
+config_host_data.set('HOST_' + host_arch.to_upper(), 1)
+
 config_host_data.set('CONFIG_ATTR', libattr.found())
 config_host_data.set('CONFIG_BRLAPI', brlapi.found())
 config_host_data.set('CONFIG_COCOA', cocoa.found())
@@ -1441,6 +1481,7 @@ config_host_data.set('CONFIG_EBPF', libbpf.found())
 config_host_data.set('CONFIG_LIBDAXCTL', libdaxctl.found())
 config_host_data.set('CONFIG_LIBISCSI', libiscsi.found())
 config_host_data.set('CONFIG_LIBNFS', libnfs.found())
+config_host_data.set('CONFIG_LIBSSH', libssh.found())
 config_host_data.set('CONFIG_LINUX_AIO', libaio.found())
 config_host_data.set('CONFIG_LINUX_IO_URING', linux_io_uring.found())
 config_host_data.set('CONFIG_LIBPMEM', libpmem.found())
@@ -1472,9 +1513,16 @@ config_host_data.set('CONFIG_ZSTD', zstd.found())
 config_host_data.set('CONFIG_FUSE', fuse.found())
 config_host_data.set('CONFIG_FUSE_LSEEK', fuse_lseek.found())
 config_host_data.set('CONFIG_SPICE_PROTOCOL', spice_protocol.found())
+if spice_protocol.found()
+config_host_data.set('CONFIG_SPICE_PROTOCOL_MAJOR', spice_protocol.version().split('.')[0])
+config_host_data.set('CONFIG_SPICE_PROTOCOL_MINOR', spice_protocol.version().split('.')[1])
+config_host_data.set('CONFIG_SPICE_PROTOCOL_MICRO', spice_protocol.version().split('.')[2])
+endif
 config_host_data.set('CONFIG_SPICE', spice.found())
 config_host_data.set('CONFIG_X11', x11.found())
+config_host_data.set('CONFIG_DBUS_DISPLAY', dbus_display)
 config_host_data.set('CONFIG_CFI', get_option('cfi'))
+config_host_data.set('CONFIG_SELINUX', selinux.found())
 config_host_data.set('QEMU_VERSION', '"@0@"'.format(meson.project_version()))
 config_host_data.set('QEMU_VERSION_MAJOR', meson.project_version().split('.')[0])
 config_host_data.set('QEMU_VERSION_MINOR', meson.project_version().split('.')[1])
@@ -1543,8 +1591,6 @@ config_host_data.set('CONFIG_INOTIFY',
                      cc.has_header_symbol('sys/inotify.h', 'inotify_init'))
 config_host_data.set('CONFIG_INOTIFY1',
                      cc.has_header_symbol('sys/inotify.h', 'inotify_init1'))
-config_host_data.set('CONFIG_IOVEC',
-                     cc.has_header_symbol('sys/uio.h', 'struct iovec'))
 config_host_data.set('CONFIG_MACHINE_BSWAP_H',
                      cc.has_header_symbol('machine/bswap.h', 'bswap32',
                                           prefix: '''#include <sys/endian.h>
@@ -1557,8 +1603,6 @@ config_host_data.set('CONFIG_SYSMACROS',
                      cc.has_header_symbol('sys/sysmacros.h', 'makedev'))
 config_host_data.set('HAVE_OPTRESET',
                      cc.has_header_symbol('getopt.h', 'optreset'))
-config_host_data.set('HAVE_UTMPX',
-                     cc.has_header_symbol('utmpx.h', 'struct utmpx'))
 config_host_data.set('HAVE_IPPROTO_MPTCP',
                      cc.has_header_symbol('netinet/in.h', 'IPPROTO_MPTCP'))
 
@@ -1569,6 +1613,14 @@ config_host_data.set('HAVE_SIGEV_NOTIFY_THREAD_ID',
 config_host_data.set('HAVE_STRUCT_STAT_ST_ATIM',
                      cc.has_member('struct stat', 'st_atim',
                                    prefix: '#include <sys/stat.h>'))
+
+# has_type
+config_host_data.set('CONFIG_IOVEC',
+                     cc.has_type('struct iovec',
+                                 prefix: '#include <sys/uio.h>'))
+config_host_data.set('HAVE_UTMPX',
+                     cc.has_type('struct utmpx',
+                                 prefix: '#include <utmpx.h>'))
 
 config_host_data.set('CONFIG_EVENTFD', cc.links('''
   #include <sys/eventfd.h>
@@ -1611,7 +1663,7 @@ config_host_data.set('CONFIG_POSIX_MADVISE', cc.links(gnu_source_prefix + '''
   #include <stddef.h>
   int main(void) { return posix_madvise(NULL, 0, POSIX_MADV_DONTNEED); }'''))
 
-config_host_data.set('CONFIG_PTHREAD_SETNAME_NP_W_TID', cc.links('''
+config_host_data.set('CONFIG_PTHREAD_SETNAME_NP_W_TID', cc.links(gnu_source_prefix + '''
   #include <pthread.h>
 
   static void *f(void *p) { return NULL; }
@@ -1622,7 +1674,7 @@ config_host_data.set('CONFIG_PTHREAD_SETNAME_NP_W_TID', cc.links('''
     pthread_setname_np(thread, "QEMU");
     return 0;
   }''', dependencies: threads))
-config_host_data.set('CONFIG_PTHREAD_SETNAME_NP_WO_TID', cc.links('''
+config_host_data.set('CONFIG_PTHREAD_SETNAME_NP_WO_TID', cc.links(gnu_source_prefix + '''
   #include <pthread.h>
 
   static void *f(void *p) { pthread_setname_np("QEMU"); return NULL; }
@@ -1658,8 +1710,10 @@ config_host_data.set('HAVE_MLOCKALL', cc.links(gnu_source_prefix + '''
 
 have_l2tpv3 = false
 if not get_option('l2tpv3').disabled() and have_system
-  have_l2tpv3 = (cc.has_header_symbol('sys/socket.h', 'struct mmsghdr')
-                 and cc.has_header('linux/ip.h'))
+  have_l2tpv3 = cc.has_type('struct mmsghdr',
+    prefix: gnu_source_prefix + '''
+      #include <sys/socket.h>
+      #include <linux/ip.h>''')
 endif
 config_host_data.set('CONFIG_L2TPV3', have_l2tpv3)
 
@@ -1685,7 +1739,7 @@ config_host_data.set('CONFIG_NETMAP', have_netmap)
 # xfs headers will not try to redefine structs from linux headers
 # if this macro is set.
 config_host_data.set('HAVE_FSXATTR', cc.links('''
-  #include <linux/fs.h>'
+  #include <linux/fs.h>
   struct fsxattr foo;
   int main(void) {
     return 0;
@@ -1753,8 +1807,6 @@ foreach k, v: config_host
       v = '"' + '", "'.join(v.split()) + '", '
     endif
     config_host_data.set(k, v)
-  elif k == 'ARCH'
-    config_host_data.set('HOST_' + v.to_upper(), 1)
   elif strings.contains(k)
     config_host_data.set_quoted(k, v)
   elif k.startswith('CONFIG_')
@@ -1784,7 +1836,6 @@ disassemblers = {
   'hppa' : ['CONFIG_HPPA_DIS'],
   'i386' : ['CONFIG_I386_DIS'],
   'x86_64' : ['CONFIG_I386_DIS'],
-  'x32' : ['CONFIG_I386_DIS'],
   'm68k' : ['CONFIG_M68K_DIS'],
   'microblaze' : ['CONFIG_MICROBLAZE_DIS'],
   'mips' : ['CONFIG_MIPS_DIS'],
@@ -1898,7 +1949,7 @@ foreach target : target_dirs
   endif
 
   foreach k, v: disassemblers
-    if config_host['ARCH'].startswith(k) or config_target['TARGET_BASE_ARCH'].startswith(k)
+    if host_arch.startswith(k) or config_target['TARGET_BASE_ARCH'].startswith(k)
       foreach sym: v
         config_target += { sym: 'y' }
         config_all_disas += { sym: 'y' }
@@ -2346,13 +2397,12 @@ genh += hxdep
 authz_ss = ss.source_set()
 blockdev_ss = ss.source_set()
 block_ss = ss.source_set()
-bsd_user_ss = ss.source_set()
 chardev_ss = ss.source_set()
 common_ss = ss.source_set()
+common_user_ss = ss.source_set()
 crypto_ss = ss.source_set()
 hwcore_ss = ss.source_set()
 io_ss = ss.source_set()
-linux_user_ss = ss.source_set()
 qmp_ss = ss.source_set()
 qom_ss = ss.source_set()
 softmmu_ss = ss.source_set()
@@ -2593,14 +2643,24 @@ subdir('tcg')
 subdir('fpu')
 subdir('accel')
 subdir('plugins')
-subdir('bsd-user')
-subdir('linux-user')
 subdir('ebpf')
 
-specific_ss.add_all(when: 'CONFIG_BSD_USER', if_true: bsd_user_ss)
+common_user_inc = []
 
-linux_user_ss.add(files('thunk.c'))
-specific_ss.add_all(when: 'CONFIG_LINUX_USER', if_true: linux_user_ss)
+subdir('common-user')
+subdir('bsd-user')
+subdir('linux-user')
+
+common_user_ss = common_user_ss.apply(config_all, strict: false)
+common_user = static_library('common-user',
+                             sources: common_user_ss.sources(),
+                             dependencies: common_user_ss.dependencies(),
+                             include_directories: common_user_inc,
+                             name_suffix: 'fa',
+                             build_by_default: false)
+common_user = declare_dependency(link_with: common_user)
+
+user_ss.add(common_user)
 
 # needed for fuzzing binaries
 subdir('tests/qtest/libqos')
@@ -2829,7 +2889,7 @@ emulators = {}
 foreach target : target_dirs
   config_target = config_target_mak[target]
   target_name = config_target['TARGET_NAME']
-  arch = config_target['TARGET_BASE_ARCH']
+  target_base_arch = config_target['TARGET_BASE_ARCH']
   arch_srcs = [config_target_h[target]]
   arch_deps = []
   c_args = ['-DNEED_CPU_H',
@@ -2845,11 +2905,11 @@ foreach target : target_dirs
   if target.endswith('-softmmu')
     qemu_target_name = 'qemu-system-' + target_name
     target_type='system'
-    t = target_softmmu_arch[arch].apply(config_target, strict: false)
+    t = target_softmmu_arch[target_base_arch].apply(config_target, strict: false)
     arch_srcs += t.sources()
     arch_deps += t.dependencies()
 
-    hw_dir = target_name == 'sparc64' ? 'sparc64' : arch
+    hw_dir = target_name == 'sparc64' ? 'sparc64' : target_base_arch
     hw = hw_arch[hw_dir].apply(config_target, strict: false)
     arch_srcs += hw.sources()
     arch_deps += hw.dependencies()
@@ -2860,14 +2920,14 @@ foreach target : target_dirs
     abi = config_target['TARGET_ABI_DIR']
     target_type='user'
     qemu_target_name = 'qemu-' + target_name
-    if arch in target_user_arch
-      t = target_user_arch[arch].apply(config_target, strict: false)
+    if target_base_arch in target_user_arch
+      t = target_user_arch[target_base_arch].apply(config_target, strict: false)
       arch_srcs += t.sources()
       arch_deps += t.dependencies()
     endif
     if 'CONFIG_LINUX_USER' in config_target
       base_dir = 'linux-user'
-      target_inc += include_directories('linux-user/host/' / config_host['ARCH'])
+      target_inc += include_directories('linux-user/host/' / host_arch)
     endif
     if 'CONFIG_BSD_USER' in config_target
       base_dir = 'bsd-user'
@@ -2899,7 +2959,7 @@ foreach target : target_dirs
     arch_srcs += gdbstub_xml
   endif
 
-  t = target_arch[arch].apply(config_target, strict: false)
+  t = target_arch[target_base_arch].apply(config_target, strict: false)
   arch_srcs += t.sources()
   arch_deps += t.dependencies()
 
@@ -3050,7 +3110,8 @@ if have_tools
   qemu_io = executable('qemu-io', files('qemu-io.c'),
              dependencies: [block, qemuutil], install: true)
   qemu_nbd = executable('qemu-nbd', files('qemu-nbd.c'),
-               dependencies: [blockdev, qemuutil, gnutls], install: true)
+               dependencies: [blockdev, qemuutil, gnutls, selinux],
+               install: true)
 
   subdir('storage-daemon')
   subdir('contrib/rdmacm-mux')
@@ -3183,6 +3244,7 @@ summary_info += {'Trace backends':    ','.join(get_option('trace_backends'))}
 if 'simple' in get_option('trace_backends')
   summary_info += {'Trace output file': get_option('trace_file') + '-<pid>'}
 endif
+summary_info += {'D-Bus display':     dbus_display}
 summary_info += {'QOM debugging':     config_host.has_key('CONFIG_QOM_CAST_DEBUG')}
 summary_info += {'vhost-kernel support': config_host.has_key('CONFIG_VHOST_KERNEL')}
 summary_info += {'vhost-net support': config_host.has_key('CONFIG_VHOST_NET')}
@@ -3286,7 +3348,7 @@ endif
 summary_info += {'TCG support':       config_all.has_key('CONFIG_TCG')}
 if config_all.has_key('CONFIG_TCG')
   if get_option('tcg_interpreter')
-    summary_info += {'TCG backend':   'TCI (TCG with bytecode interpreter, experimental and slow)'}
+    summary_info += {'TCG backend':   'TCI (TCG with bytecode interpreter, slow)'}
   else
     summary_info += {'TCG backend':   'native (@0@)'.format(cpu)}
   endif
@@ -3412,7 +3474,7 @@ endif
 summary_info += {'seccomp support':   seccomp}
 summary_info += {'GlusterFS support': glusterfs}
 summary_info += {'TPM support':       config_host.has_key('CONFIG_TPM')}
-summary_info += {'libssh support':    config_host.has_key('CONFIG_LIBSSH')}
+summary_info += {'libssh support':    libssh}
 summary_info += {'lzo support':       lzo}
 summary_info += {'snappy support':    snappy}
 summary_info += {'bzip2 support':     libbzip2}
@@ -3426,6 +3488,7 @@ summary_info += {'libdaxctl support': libdaxctl}
 summary_info += {'libudev':           libudev}
 # Dummy dependency, keep .found()
 summary_info += {'FUSE lseek':        fuse_lseek.found()}
+summary_info += {'selinux':           selinux}
 summary(summary_info, bool_yn: true, section: 'Dependencies')
 
 if not supported_cpus.contains(cpu)

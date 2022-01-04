@@ -13,8 +13,7 @@ meson_options_help() {
   printf "%s\n" '                           jemalloc/system/tcmalloc)'
   printf "%s\n" '  --enable-slirp[=CHOICE]  Whether and how to find the slirp library'
   printf "%s\n" '                           (choices: auto/disabled/enabled/internal/system)'
-  printf "%s\n" '  --enable-tcg-interpreter TCG with bytecode interpreter (experimental and'
-  printf "%s\n" '                           slow)'
+  printf "%s\n" '  --enable-tcg-interpreter TCG with bytecode interpreter (slow)'
   printf "%s\n" '  --enable-trace-backends=CHOICE'
   printf "%s\n" '                           Set available tracing backends [log] (choices:'
   printf "%s\n" '                           dtrace/ftrace/log/nop/simple/syslog/ust)'
@@ -34,6 +33,7 @@ meson_options_help() {
   printf "%s\n" '  coreaudio       CoreAudio sound support'
   printf "%s\n" '  curl            CURL block device driver'
   printf "%s\n" '  curses          curses UI'
+  printf "%s\n" '  dbus-display    -display dbus support'
   printf "%s\n" '  docs            Documentations build support'
   printf "%s\n" '  dsound          DirectSound sound support'
   printf "%s\n" '  fuse            FUSE block device export'
@@ -54,6 +54,7 @@ meson_options_help() {
   printf "%s\n" '  libiscsi        libiscsi userspace initiator'
   printf "%s\n" '  libnfs          libnfs block device driver'
   printf "%s\n" '  libpmem         libpmem support'
+  printf "%s\n" '  libssh          ssh block device support'
   printf "%s\n" '  libudev         Use libudev to enumerate host devices'
   printf "%s\n" '  libusb          libusb support for USB passthrough'
   printf "%s\n" '  libxml2         libxml2 support for Parallels image format'
@@ -73,6 +74,7 @@ meson_options_help() {
   printf "%s\n" '  sdl             SDL user interface'
   printf "%s\n" '  sdl-image       SDL Image support for icons'
   printf "%s\n" '  seccomp         seccomp support'
+  printf "%s\n" '  selinux         SELinux support in qemu-nbd'
   printf "%s\n" '  smartcard       CA smartcard emulation support'
   printf "%s\n" '  snappy          snappy compression support'
   printf "%s\n" '  sparse          sparse checker'
@@ -130,6 +132,8 @@ _meson_option_parse() {
     --disable-curl) printf "%s" -Dcurl=disabled ;;
     --enable-curses) printf "%s" -Dcurses=enabled ;;
     --disable-curses) printf "%s" -Dcurses=disabled ;;
+    --enable-dbus-display) printf "%s" -Ddbus_display=enabled ;;
+    --disable-dbus-display) printf "%s" -Ddbus_display=disabled ;;
     --enable-docs) printf "%s" -Ddocs=enabled ;;
     --disable-docs) printf "%s" -Ddocs=disabled ;;
     --enable-dsound) printf "%s" -Ddsound=enabled ;;
@@ -177,6 +181,8 @@ _meson_option_parse() {
     --disable-libnfs) printf "%s" -Dlibnfs=disabled ;;
     --enable-libpmem) printf "%s" -Dlibpmem=enabled ;;
     --disable-libpmem) printf "%s" -Dlibpmem=disabled ;;
+    --enable-libssh) printf "%s" -Dlibssh=enabled ;;
+    --disable-libssh) printf "%s" -Dlibssh=disabled ;;
     --enable-libudev) printf "%s" -Dlibudev=enabled ;;
     --disable-libudev) printf "%s" -Dlibudev=disabled ;;
     --enable-libusb) printf "%s" -Dlibusb=enabled ;;
@@ -216,6 +222,8 @@ _meson_option_parse() {
     --disable-sdl-image) printf "%s" -Dsdl_image=disabled ;;
     --enable-seccomp) printf "%s" -Dseccomp=enabled ;;
     --disable-seccomp) printf "%s" -Dseccomp=disabled ;;
+    --enable-selinux) printf "%s" -Dselinux=enabled ;;
+    --disable-selinux) printf "%s" -Dselinux=disabled ;;
     --enable-slirp) printf "%s" -Dslirp=enabled ;;
     --disable-slirp) printf "%s" -Dslirp=disabled ;;
     --enable-slirp=*) quote_sh "-Dslirp=$2" ;;

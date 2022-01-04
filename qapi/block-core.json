@@ -491,11 +491,11 @@
 # @granularity: granularity of the dirty bitmap in bytes (since 1.4)
 #
 # @recording: true if the bitmap is recording new writes from the guest.
-#             Replaces `active` and `disabled` statuses. (since 4.0)
+#             Replaces ``active`` and ``disabled`` statuses. (since 4.0)
 #
 # @busy: true if the bitmap is in-use by some operation (NBD or jobs)
 #        and cannot be modified via QMP or used by another operation.
-#        Replaces `locked` and `frozen` statuses. (since 4.0)
+#        Replaces ``locked`` and ``frozen`` statuses. (since 4.0)
 #
 # @persistent: true if the bitmap was stored on disk, is scheduled to be stored
 #              on disk, or both. (since 4.0)
@@ -1709,6 +1709,9 @@
 # The operation can be stopped before it has completed using the
 # block-job-cancel command.
 #
+# Features:
+# @deprecated: This command is deprecated. Use @blockdev-backup instead.
+#
 # Returns: - nothing on success
 #          - If @device is not a valid block device, GenericError
 #
@@ -1724,7 +1727,7 @@
 #
 ##
 { 'command': 'drive-backup', 'boxed': true,
-  'data': 'DriveBackup' }
+  'data': 'DriveBackup', 'features': ['deprecated'] }
 
 ##
 # @blockdev-backup:
@@ -4093,6 +4096,12 @@
 #                   future requests before a successful reconnect will
 #                   immediately fail. Default 0 (Since 4.2)
 #
+# @open-timeout: In seconds. If zero, the nbd driver tries the connection
+#                only once, and fails to open if the connection fails.
+#                If non-zero, the nbd driver will repeat connection attempts
+#                until successful or until @open-timeout seconds have elapsed.
+#                Default 0 (Since 7.0)
+#
 # Features:
 # @unstable: Member @x-dirty-bitmap is experimental.
 #
@@ -4103,7 +4112,8 @@
             '*export': 'str',
             '*tls-creds': 'str',
             '*x-dirty-bitmap': { 'type': 'str', 'features': [ 'unstable' ] },
-            '*reconnect-delay': 'uint32' } }
+            '*reconnect-delay': 'uint32',
+            '*open-timeout': 'uint32' } }
 
 ##
 # @BlockdevOptionsRaw:

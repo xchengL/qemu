@@ -41,15 +41,16 @@ void gd_gl_area_draw(VirtualConsole *vc)
 #ifdef CONFIG_GBM
     QemuDmaBuf *dmabuf = vc->gfx.guest_fb.dmabuf;
 #endif
-    int ww, wh, y1, y2;
+    int ww, wh, ws, y1, y2;
 
     if (!vc->gfx.gls) {
         return;
     }
 
     gtk_gl_area_make_current(GTK_GL_AREA(vc->gfx.drawing_area));
-    ww = gtk_widget_get_allocated_width(vc->gfx.drawing_area);
-    wh = gtk_widget_get_allocated_height(vc->gfx.drawing_area);
+    ws = gdk_window_get_scale_factor(gtk_widget_get_window(vc->gfx.drawing_area));
+    ww = gtk_widget_get_allocated_width(vc->gfx.drawing_area) * ws;
+    wh = gtk_widget_get_allocated_height(vc->gfx.drawing_area) * ws;
 
     if (vc->gfx.scanout_mode) {
         if (!vc->gfx.guest_fb.framebuffer) {
@@ -100,8 +101,6 @@ void gd_gl_area_draw(VirtualConsole *vc)
         surface_gl_setup_viewport(vc->gfx.gls, vc->gfx.ds, ww, wh);
         surface_gl_render_texture(vc->gfx.gls, vc->gfx.ds);
     }
-
-    graphic_hw_gl_flushed(vc->gfx.dcl.con);
 }
 
 void gd_gl_area_update(DisplayChangeListener *dcl,
@@ -171,10 +170,10 @@ void gd_gl_area_switch(DisplayChangeListener *dcl,
     }
 }
 
-QEMUGLContext gd_gl_area_create_context(DisplayChangeListener *dcl,
+QEMUGLContext gd_gl_area_create_context(DisplayGLCtx *dgc,
                                         QEMUGLParams *params)
 {
-    VirtualConsole *vc = container_of(dcl, VirtualConsole, gfx.dcl);
+    VirtualConsole *vc = container_of(dgc, VirtualConsole, gfx.dgc);
     GdkWindow *window;
     GdkGLContext *ctx;
     GError *err = NULL;
@@ -200,7 +199,7 @@ QEMUGLContext gd_gl_area_create_context(DisplayChangeListener *dcl,
     return ctx;
 }
 
-void gd_gl_area_destroy_context(DisplayChangeListener *dcl, QEMUGLContext ctx)
+void gd_gl_area_destroy_context(DisplayGLCtx *dgc, QEMUGLContext ctx)
 {
     /* FIXME */
 }
@@ -279,7 +278,7 @@ void gtk_gl_area_init(void)
     display_opengl = 1;
 }
 
-int gd_gl_area_make_current(DisplayChangeListener *dcl,
+int gd_gl_area_make_current(DisplayGLCtx *dgc,
                             QEMUGLContext ctx)
 {
     gdk_gl_context_make_current(ctx);
