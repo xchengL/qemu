@@ -321,12 +321,11 @@ typedef enum {
 #define MSR_UCLE 26 /* User-mode cache lock enable for BookE                 */
 #define MSR_VR   25 /* altivec available                            x hflags */
 #define MSR_SPE  25 /* SPE enable for BookE                         x hflags */
-#define MSR_AP   23 /* Access privilege state on 602                  hflags */
 #define MSR_VSX  23 /* Vector Scalar Extension (ISA 2.06 and later) x hflags */
-#define MSR_SA   22 /* Supervisor access mode on 602                  hflags */
 #define MSR_S    22 /* Secure state                                          */
 #define MSR_KEY  19 /* key bit on 603e                                       */
 #define MSR_POW  18 /* Power management                                      */
+#define MSR_WE   18 /* Wait State Enable on 405                              */
 #define MSR_TGPR 17 /* TGPR usage on 602/603                        x        */
 #define MSR_CE   17 /* Critical interrupt enable on embedded PowerPC x       */
 #define MSR_ILE  16 /* Interrupt little-endian mode                          */
@@ -476,9 +475,7 @@ typedef enum {
 #define msr_ucle ((env->msr >> MSR_UCLE) & 1)
 #define msr_vr   ((env->msr >> MSR_VR)   & 1)
 #define msr_spe  ((env->msr >> MSR_SPE)  & 1)
-#define msr_ap   ((env->msr >> MSR_AP)   & 1)
 #define msr_vsx  ((env->msr >> MSR_VSX)  & 1)
-#define msr_sa   ((env->msr >> MSR_SA)   & 1)
 #define msr_key  ((env->msr >> MSR_KEY)  & 1)
 #define msr_pow  ((env->msr >> MSR_POW)  & 1)
 #define msr_tgpr ((env->msr >> MSR_TGPR) & 1)
@@ -1133,7 +1130,6 @@ struct CPUPPCState {
     int nb_pids;     /* Number of available PID registers */
     int tlb_type;    /* Type of TLB we're dealing with */
     ppc_tlb_t tlb;   /* TLB is optional. Allocate them only if needed */
-    target_ulong pb[4]; /* 403 dedicated access protection registers */
     bool tlb_dirty;  /* Set to non-zero when modifying TLB */
     bool kvm_sw_tlb; /* non-zero if KVM SW TLB API is active */
     uint32_t tlb_need_flush; /* Delayed flush needed */
@@ -1144,6 +1140,9 @@ struct CPUPPCState {
     /* Other registers */
     target_ulong spr[1024]; /* special purpose registers */
     ppc_spr_t spr_cb[1024];
+    /* Composite status for PMC[1-6] enabled and counting insns or cycles. */
+    uint8_t pmc_ins_cnt;
+    uint8_t pmc_cyc_cnt;
     /* Vector status and control register, minus VSCR_SAT */
     uint32_t vscr;
     /* VSX registers (including FP and AVR) */
@@ -1399,6 +1398,8 @@ target_ulong load_40x_pit(CPUPPCState *env);
 void store_40x_pit(CPUPPCState *env, target_ulong val);
 void store_40x_dbcr0(CPUPPCState *env, uint32_t val);
 void store_40x_sler(CPUPPCState *env, uint32_t val);
+void store_40x_tcr(CPUPPCState *env, target_ulong val);
+void store_40x_tsr(CPUPPCState *env, target_ulong val);
 void store_booke_tcr(CPUPPCState *env, target_ulong val);
 void store_booke_tsr(CPUPPCState *env, target_ulong val);
 void ppc_tlb_invalidate_all(CPUPPCState *env);
@@ -2137,8 +2138,6 @@ enum {
     PPC_MFTB           = 0x0000000000000200ULL,
 
     /* Fixed-point unit extensions                                           */
-    /*   PowerPC 602 specific                                                */
-    PPC_602_SPEC       = 0x0000000000000400ULL,
     /*   isel instruction                                                    */
     PPC_ISEL           = 0x0000000000000800ULL,
     /*   popcntb instruction                                                 */
@@ -2240,7 +2239,7 @@ enum {
 #define PPC_TCG_INSNS  (PPC_INSNS_BASE | PPC_POWER | PPC_POWER2 \
                         | PPC_POWER_RTC | PPC_POWER_BR | PPC_64B \
                         | PPC_64BX | PPC_64H | PPC_WAIT | PPC_MFTB \
-                        | PPC_602_SPEC | PPC_ISEL | PPC_POPCNTB \
+                        | PPC_ISEL | PPC_POPCNTB \
                         | PPC_STRING | PPC_FLOAT | PPC_FLOAT_EXT \
                         | PPC_FLOAT_FSQRT | PPC_FLOAT_FRES \
                         | PPC_FLOAT_FRSQRTE | PPC_FLOAT_FRSQRTES \
@@ -2723,20 +2722,29 @@ static inline bool ppc_has_spr(PowerPCCPU *cpu, int spr)
     return cpu->env.spr_cb[spr].name != NULL;
 }
 
-static inline bool ppc_interrupts_little_endian(PowerPCCPU *cpu)
+#if !defined(CONFIG_USER_ONLY)
+static inline bool ppc_interrupts_little_endian(PowerPCCPU *cpu, bool hv)
 {
     PowerPCCPUClass *pcc = POWERPC_CPU_GET_CLASS(cpu);
+    CPUPPCState *env = &cpu->env;
+    bool ile;
 
-    /*
-     * Only models that have an LPCR and know about LPCR_ILE can do little
-     * endian.
-     */
-    if (pcc->lpcr_mask & LPCR_ILE) {
-        return !!(cpu->env.spr[SPR_LPCR] & LPCR_ILE);
+    if (hv && env->has_hv_mode) {
+        if (is_isa300(pcc)) {
+            ile = !!(env->spr[SPR_HID0] & HID0_POWER9_HILE);
+        } else {
+            ile = !!(env->spr[SPR_HID0] & HID0_HILE);
+        }
+
+    } else if (pcc->lpcr_mask & LPCR_ILE) {
+        ile = !!(env->spr[SPR_LPCR] & LPCR_ILE);
+    } else {
+        ile = !!(msr_ile);
     }
 
-    return false;
+    return ile;
 }
+#endif
 
 void dump_mmu(CPUPPCState *env);
 

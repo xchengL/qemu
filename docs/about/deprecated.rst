@@ -134,12 +134,6 @@ specified.
 Use ``-display sdl,window-close=...`` instead (i.e. with a minus instead of
 an underscore between "window" and "close").
 
-``-no-quit`` (since 6.1)
-''''''''''''''''''''''''
-
-The ``-no-quit`` is a synonym for ``-display ...,window-close=off`` which
-should be used instead.
-
 ``-alt-grab`` and ``-display sdl,alt_grab=on`` (since 6.2)
 ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
@@ -269,6 +263,19 @@ This is a bug in QEMU that will be fixed in the future so that previously
 accepted incorrect commands will return an error. Users should make sure that
 all arguments passed to ``device_add`` are consistent with the documented
 property types.
+
+``query-sgx`` return value member ``section-size`` (since 7.0)
+''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+
+Member ``section-size`` in return value elements with meta-type ``uint64`` is
+deprecated.  Use ``sections`` instead.
+
+
+``query-sgx-capabilities`` return value member ``section-size`` (since 7.0)
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+
+Member ``section-size`` in return value elements with meta-type ``uint64`` is
+deprecated.  Use ``sections`` instead.
 
 System accelerators
 -------------------

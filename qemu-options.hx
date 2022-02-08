@@ -277,6 +277,16 @@ SRST
 
         -smp 16,sockets=2,dies=2,cores=2,threads=2,maxcpus=16
 
+    The following sub-option defines a CPU topology hierarchy (2 sockets
+    totally on the machine, 2 clusters per socket, 2 cores per cluster,
+    2 threads per core) for ARM virt machines which support sockets/clusters
+    /cores/threads. Some members of the option can be omitted but their values
+    will be automatically computed:
+
+    ::
+
+        -smp 16,sockets=2,clusters=2,cores=2,threads=2,maxcpus=16
+
     Historically preference was given to the coarsest topology parameters
     when computing missing values (ie sockets preferred over cores, which
     were preferred over threads), however, this behaviour is considered
@@ -2063,14 +2073,6 @@ SRST
     also affects the special keys (for fullscreen, monitor-mode
     switching, etc). This option is deprecated - please use
     ``-display sdl,grab-mod=rctrl`` instead.
-ERST
-
-DEF("no-quit", 0, QEMU_OPTION_no_quit,
-    "-no-quit        disable SDL/GTK window close capability (deprecated)\n", QEMU_ARCH_ALL)
-SRST
-``-no-quit``
-    Disable window close capability (SDL and GTK only). This option is
-    deprecated, please use ``-display ...,window-close=off`` instead.
 ERST
 
 DEF("sdl", 0, QEMU_OPTION_sdl,
