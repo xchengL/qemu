@@ -408,7 +408,7 @@ M: Paolo Bonzini <pbonzini@redhat.com>
 M: Marcelo Tosatti <mtosatti@redhat.com>
 L: kvm@vger.kernel.org
 S: Supported
-F: docs/amd-memory-encryption.txt
+F: docs/system/i386/amd-memory-encryption.rst
 F: docs/system/i386/sgx.rst
 F: target/i386/kvm/
 F: target/i386/sev*
@@ -3585,6 +3585,7 @@ F: .travis.yml
 F: scripts/ci/
 F: tests/docker/
 F: tests/vm/
+F: tests/lcitool/
 F: scripts/archive-source.sh
 W: https://gitlab.com/qemu-project/qemu/pipelines
 W: https://travis-ci.org/qemu/qemu
