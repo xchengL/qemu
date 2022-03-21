@@ -757,6 +757,7 @@ static void pc_i440fx_1_7_machine_options(MachineClass *m)
     m->hw_version = "1.7.0";
     m->default_machine_opts = NULL;
     m->option_rom_has_mr = true;
+    m->deprecation_reason = "old and unattended - use a newer version instead";
     compat_props_add(m->compat_props, pc_compat_1_7, pc_compat_1_7_len);
     pcmc->smbios_defaults = false;
     pcmc->gigabyte_align = false;
@@ -867,7 +868,7 @@ static void isa_bridge_class_init(ObjectClass *klass, void *data)
     k->class_id     = PCI_CLASS_BRIDGE_ISA;
 };
 
-static TypeInfo isa_bridge_info = {
+static const TypeInfo isa_bridge_info = {
     .name          = "igd-passthrough-isa-bridge",
     .parent        = TYPE_PCI_DEVICE,
     .instance_size = sizeof(PCIDevice),
