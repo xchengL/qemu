@@ -82,6 +82,8 @@ static inline int errno_to_dotl(int err) {
     } else if (err == EOPNOTSUPP) {
         err = 95; /* ==EOPNOTSUPP on Linux */
     }
+#elif defined(CONFIG_WIN32)
+    err = errno_translate_win32(err);
 #else
 #error Missing errno translation to Linux for this host system
 #endif
