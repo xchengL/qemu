@@ -448,11 +448,32 @@ glib = declare_dependency(compile_args: config_host['GLIB_CFLAGS'].split(),
 meson.override_dependency('glib-2.0', glib)
 
 gio = not_found
-if 'CONFIG_GIO' in config_host
-  gio = declare_dependency(compile_args: config_host['GIO_CFLAGS'].split(),
-                           link_args: config_host['GIO_LIBS'].split(),
-                           version: config_host['GLIB_VERSION'])
+gdbus_codegen = not_found
+if not get_option('gio').auto() or have_system
+  gio = dependency('gio-2.0', required: get_option('gio'),
+                   method: 'pkg-config', kwargs: static_kwargs)
+  if gio.found() and not cc.links('''
+    #include <gio/gio.h>
+    int main(void)
+    {
+      g_dbus_proxy_new_sync(0, 0, 0, 0, 0, 0, 0, 0);
+      return 0;
+    }''', dependencies: [glib, gio])
+    if get_option('gio').enabled()
+      error('The installed libgio is broken for static linking')
+    endif
+    gio = not_found
+  endif
+  if gio.found()
+    gdbus_codegen = find_program(gio.get_variable('gdbus_codegen'),
+                                 required: get_option('gio'))
+    gio_unix = dependency('gio-unix-2.0', required: get_option('gio'),
+                          method: 'pkg-config', kwargs: static_kwargs)
+    gio = declare_dependency(dependencies: [gio, gio_unix],
+                             version: gio.version())
+  endif
 endif
+
 lttng = not_found
 if 'ust' in get_option('trace_backends')
   lttng = dependency('lttng-ust', required: true, version: '>= 2.1',
@@ -1000,9 +1021,14 @@ if not get_option('coreaudio').auto() or (targetos == 'darwin' and have_system)
 endif
 
 opengl = not_found
-if 'CONFIG_OPENGL' in config_host
-  opengl = declare_dependency(compile_args: config_host['OPENGL_CFLAGS'].split(),
-                              link_args: config_host['OPENGL_LIBS'].split())
+if not get_option('opengl').auto() or have_system or have_vhost_user_gpu
+  epoxy = dependency('epoxy', method: 'pkg-config',
+                      required: get_option('opengl'), kwargs: static_kwargs)
+  if cc.has_header('epoxy/egl.h', dependencies: epoxy)
+    opengl = epoxy
+  elif get_option('opengl').enabled()
+    error('epoxy/egl.h not found')
+  endif
 endif
 gbm = not_found
 if (have_system or have_tools) and (virgl.found() or opengl.found())
@@ -1115,14 +1141,16 @@ if gtkx11.found()
   x11 = dependency('x11', method: 'pkg-config', required: gtkx11.found(),
                    kwargs: static_kwargs)
 endif
-vnc = not_found
 png = not_found
+if get_option('png').allowed() and have_system
+   png = dependency('libpng', required: get_option('png'),
+                    method: 'pkg-config', kwargs: static_kwargs)
+endif
+vnc = not_found
 jpeg = not_found
 sasl = not_found
 if get_option('vnc').allowed() and have_system
   vnc = declare_dependency() # dummy dependency
-  png = dependency('libpng', required: get_option('vnc_png'),
-                   method: 'pkg-config', kwargs: static_kwargs)
   jpeg = dependency('libjpeg', required: get_option('vnc_jpeg'),
                     method: 'pkg-config', kwargs: static_kwargs)
   sasl = cc.find_library('sasl2', has_headers: ['sasl/sasl.h'],
@@ -1212,9 +1240,22 @@ if numa.found() and not cc.links('''
 endif
 
 rdma = not_found
-if 'CONFIG_RDMA' in config_host
-  rdma = declare_dependency(link_args: config_host['RDMA_LIBS'].split())
+if not get_option('rdma').auto() or have_system
+  libumad = cc.find_library('ibumad', required: get_option('rdma'))
+  rdma_libs = [cc.find_library('rdmacm', has_headers: ['rdma/rdma_cma.h'],
+                               required: get_option('rdma'),
+                               kwargs: static_kwargs),
+               cc.find_library('ibverbs', required: get_option('rdma'),
+                               kwargs: static_kwargs),
+               libumad]
+  rdma = declare_dependency(dependencies: rdma_libs)
+  foreach lib: rdma_libs
+    if not lib.found()
+      rdma = not_found
+    endif
+  endforeach
 endif
+
 xen = not_found
 if 'CONFIG_XEN_BACKEND' in config_host
   xen = declare_dependency(compile_args: config_host['XEN_CFLAGS'].split(),
@@ -1460,7 +1501,7 @@ dbus_display = get_option('dbus_display') \
            error_message: '-display dbus requires glib>=2.64') \
   .require(enable_modules,
            error_message: '-display dbus requires --enable-modules') \
-  .require(config_host.has_key('GDBUS_CODEGEN'),
+  .require(gdbus_codegen.found(),
            error_message: '-display dbus requires gdbus-codegen') \
   .allowed()
 
@@ -1509,6 +1550,11 @@ endif
 
 config_host_data.set('HOST_' + host_arch.to_upper(), 1)
 
+if get_option('module_upgrades') and not enable_modules
+  error('Cannot enable module-upgrades as modules are not enabled')
+endif
+config_host_data.set('CONFIG_MODULE_UPGRADES', get_option('module_upgrades'))
+
 config_host_data.set('CONFIG_ATTR', libattr.found())
 config_host_data.set('CONFIG_BDRV_WHITELIST_TOOLS', get_option('block_drv_whitelist_in_tools'))
 config_host_data.set('CONFIG_BRLAPI', brlapi.found())
@@ -1522,6 +1568,7 @@ config_host_data.set('CONFIG_MPATH_NEW_API', mpathpersist_new_api)
 config_host_data.set('CONFIG_CURL', curl.found())
 config_host_data.set('CONFIG_CURSES', curses.found())
 config_host_data.set('CONFIG_GBM', gbm.found())
+config_host_data.set('CONFIG_GIO', gio.found())
 config_host_data.set('CONFIG_GLUSTERFS', glusterfs.found())
 if glusterfs.found()
   config_host_data.set('CONFIG_GLUSTERFS_XLATOR_OPT', glusterfs.version().version_compare('>=4'))
@@ -1544,8 +1591,10 @@ config_host_data.set('CONFIG_LINUX_AIO', libaio.found())
 config_host_data.set('CONFIG_LINUX_IO_URING', linux_io_uring.found())
 config_host_data.set('CONFIG_LIBPMEM', libpmem.found())
 config_host_data.set('CONFIG_NUMA', numa.found())
+config_host_data.set('CONFIG_OPENGL', opengl.found())
 config_host_data.set('CONFIG_PROFILER', get_option('profiler'))
 config_host_data.set('CONFIG_RBD', rbd.found())
+config_host_data.set('CONFIG_RDMA', rdma.found())
 config_host_data.set('CONFIG_SDL', sdl.found())
 config_host_data.set('CONFIG_SDL_IMAGE', sdl_image.found())
 config_host_data.set('CONFIG_SECCOMP', seccomp.found())
@@ -1554,9 +1603,9 @@ config_host_data.set('CONFIG_TPM', have_tpm)
 config_host_data.set('CONFIG_USB_LIBUSB', libusb.found())
 config_host_data.set('CONFIG_VDE', vde.found())
 config_host_data.set('CONFIG_VHOST_USER_BLK_SERVER', have_vhost_user_blk_server)
+config_host_data.set('CONFIG_PNG', png.found())
 config_host_data.set('CONFIG_VNC', vnc.found())
 config_host_data.set('CONFIG_VNC_JPEG', jpeg.found())
-config_host_data.set('CONFIG_VNC_PNG', png.found())
 config_host_data.set('CONFIG_VNC_SASL', sasl.found())
 config_host_data.set('CONFIG_VIRTFS', have_virtfs)
 config_host_data.set('CONFIG_VTE', vte.found())
@@ -1592,7 +1641,6 @@ config_host_data.set('QEMU_VERSION_MICRO', meson.project_version().split('.')[2]
 
 config_host_data.set_quoted('CONFIG_HOST_DSOSUF', host_dsosuf)
 config_host_data.set('HAVE_HOST_BLOCK_DEVICE', have_host_block_device)
-config_host_data.set('HOST_WORDS_BIGENDIAN', host_machine.endian() == 'big')
 
 have_coroutine_pool = get_option('coroutine_pool')
 if get_option('debug_stack_usage') and have_coroutine_pool
@@ -1633,20 +1681,20 @@ config_host_data.set('CONFIG_MEMALIGN', cc.has_function('memalign'))
 config_host_data.set('CONFIG_PPOLL', cc.has_function('ppoll'))
 config_host_data.set('CONFIG_PREADV', cc.has_function('preadv', prefix: '#include <sys/uio.h>'))
 config_host_data.set('CONFIG_PTHREAD_FCHDIR_NP', cc.has_function('pthread_fchdir_np'))
-config_host_data.set('CONFIG_SEM_TIMEDWAIT', cc.has_function('sem_timedwait', dependencies: threads))
 config_host_data.set('CONFIG_SENDFILE', cc.has_function('sendfile'))
 config_host_data.set('CONFIG_SETNS', cc.has_function('setns') and cc.has_function('unshare'))
 config_host_data.set('CONFIG_SYNCFS', cc.has_function('syncfs'))
 config_host_data.set('CONFIG_SYNC_FILE_RANGE', cc.has_function('sync_file_range'))
 config_host_data.set('CONFIG_TIMERFD', cc.has_function('timerfd_create'))
 config_host_data.set('HAVE_COPY_FILE_RANGE', cc.has_function('copy_file_range'))
+config_host_data.set('HAVE_GETIFADDRS', cc.has_function('getifaddrs'))
 config_host_data.set('HAVE_OPENPTY', cc.has_function('openpty', dependencies: util))
 config_host_data.set('HAVE_STRCHRNUL', cc.has_function('strchrnul'))
 config_host_data.set('HAVE_SYSTEM_FUNCTION', cc.has_function('system', prefix: '#include <stdlib.h>'))
 if rdma.found()
   config_host_data.set('HAVE_IBV_ADVISE_MR',
                        cc.has_function('ibv_advise_mr',
-                                       args: config_host['RDMA_LIBS'].split(),
+                                       dependencies: rdma,
                                        prefix: '#include <infiniband/verbs.h>'))
 endif
 
@@ -1655,8 +1703,6 @@ config_host_data.set('CONFIG_BYTESWAP_H',
                      cc.has_header_symbol('byteswap.h', 'bswap_32'))
 config_host_data.set('CONFIG_EPOLL_CREATE1',
                      cc.has_header_symbol('sys/epoll.h', 'epoll_create1'))
-config_host_data.set('CONFIG_HAS_ENVIRON',
-                     cc.has_header_symbol('unistd.h', 'environ', prefix: gnu_source_prefix))
 config_host_data.set('CONFIG_FALLOCATE_PUNCH_HOLE',
                      cc.has_header_symbol('linux/falloc.h', 'FALLOC_FL_PUNCH_HOLE') and
                      cc.has_header_symbol('linux/falloc.h', 'FALLOC_FL_KEEP_SIZE'))
@@ -1782,6 +1828,17 @@ config_host_data.set('CONFIG_PTHREAD_SETNAME_NP_WO_TID', cc.links(gnu_source_pre
   {
     pthread_t thread;
     pthread_create(&thread, 0, f, 0);
+    return 0;
+  }''', dependencies: threads))
+config_host_data.set('CONFIG_PTHREAD_CONDATTR_SETCLOCK', cc.links(gnu_source_prefix + '''
+  #include <pthread.h>
+  #include <time.h>
+
+  int main(void)
+  {
+    pthread_condattr_t attr
+    pthread_condattr_init(&attr);
+    pthread_condattr_setclock(&attr, CLOCK_MONOTONIC);
     return 0;
   }''', dependencies: threads))
 
@@ -1911,6 +1968,32 @@ config_host_data.set('CONFIG_GETAUXVAL', cc.links(gnu_source_prefix + '''
     return getauxval(AT_HWCAP) == 0;
   }'''))
 
+config_host_data.set('CONFIG_USBFS', have_linux_user and cc.compiles('''
+  #include <linux/usbdevice_fs.h>
+
+  #ifndef USBDEVFS_GET_CAPABILITIES
+  #error "USBDEVFS_GET_CAPABILITIES undefined"
+  #endif
+
+  #ifndef USBDEVFS_DISCONNECT_CLAIM
+  #error "USBDEVFS_DISCONNECT_CLAIM undefined"
+  #endif
+
+  int main(void) { return 0; }'''))
+
+have_keyring = get_option('keyring') \
+  .require(targetos == 'linux', error_message: 'keyring is only available on Linux') \
+  .require(cc.compiles('''
+    #include <errno.h>
+    #include <asm/unistd.h>
+    #include <linux/keyctl.h>
+    #include <sys/syscall.h>
+    #include <unistd.h>
+    int main(void) {
+        return syscall(__NR_keyctl, KEYCTL_READ, 0, NULL, NULL, 0);
+    }'''), error_message: 'keyctl syscall not available on this system').allowed()
+config_host_data.set('CONFIG_SECRET_KEYRING', have_keyring)
+
 have_cpuid_h = cc.links('''
   #include <cpuid.h>
   int main(void) {
@@ -1957,6 +2040,36 @@ config_host_data.set('CONFIG_AVX512F_OPT', get_option('avx512f') \
     int main(int argc, char *argv[]) { return bar(argv[0]); }
   '''), error_message: 'AVX512F not available').allowed())
 
+have_pvrdma = get_option('pvrdma') \
+  .require(rdma.found(), error_message: 'PVRDMA requires OpenFabrics libraries') \
+  .require(cc.compiles('''
+    int main(void)
+    {
+      char buf = 0;
+      void *addr = &buf;
+      addr = mremap(addr, 0, 1, MREMAP_MAYMOVE | MREMAP_FIXED);
+
+      return 0;
+    }'''), error_message: 'PVRDMA requires mremap').allowed()
+
+if have_pvrdma
+  config_host_data.set('LEGACY_RDMA_REG_MR', not cc.compiles('''
+    #include <infiniband/verbs.h>
+    int main(void)
+    {
+      struct ibv_mr *mr;
+      struct ibv_pd *pd = NULL;
+      size_t length = 10;
+      uint64_t iova = 0;
+      int access = 0;
+      void *addr = NULL;
+
+      mr = ibv_reg_mr_iova(pd, addr, length, iova, access);
+      ibv_dereg_mr(mr);
+      return 0;
+    }'''))
+endif
+
 if get_option('membarrier').disabled()
   have_membarrier = false
 elif targetos == 'windows'
@@ -1991,25 +2104,10 @@ have_afalg = get_option('crypto_afalg') \
   '''), error_message: 'AF_ALG requested but could not be detected').allowed()
 config_host_data.set('CONFIG_AF_ALG', have_afalg)
 
-config_host_data.set('CONFIG_AF_VSOCK', cc.compiles(gnu_source_prefix + '''
-  #include <errno.h>
-  #include <sys/types.h>
-  #include <sys/socket.h>
-  #if !defined(AF_VSOCK)
-  # error missing AF_VSOCK flag
-  #endif
-  #include <linux/vm_sockets.h>
-  int main(void) {
-    int sock, ret;
-    struct sockaddr_vm svm;
-    socklen_t len = sizeof(svm);
-    sock = socket(AF_VSOCK, SOCK_STREAM, 0);
-    ret = getpeername(sock, (struct sockaddr *)&svm, &len);
-    if ((ret == -1) && (errno == ENOTCONN)) {
-        return 0;
-    }
-    return -1;
-  }'''))
+config_host_data.set('CONFIG_AF_VSOCK', cc.has_header_symbol(
+  'linux/vm_sockets.h', 'AF_VSOCK',
+  prefix: '#include <sys/socket.h>',
+))
 
 have_vss = false
 have_vss_sdk = false # old xp/2003 SDK
@@ -2021,22 +2119,6 @@ if targetos == 'windows' and link_language == 'cpp'
   have_vss_sdk = cxx.has_header('vscoordint.h')
 endif
 config_host_data.set('HAVE_VSS_SDK', have_vss_sdk)
-
-have_ntddscsi = false
-if targetos == 'windows'
-  have_ntddscsi = cc.compiles('''
-    #include <windows.h>
-    #include <ntddscsi.h>
-    int main(void) {
-    #if !defined(IOCTL_SCSI_GET_ADDRESS)
-    #error Missing required ioctl definitions
-    #endif
-      SCSI_ADDRESS addr = { .Lun = 0, .TargetId = 0, .PathId = 0 };
-      return addr.Lun;
-    }
-''')
-endif
-config_host_data.set('HAVE_NTDDSCSI', have_ntddscsi)
 
 ignored = ['CONFIG_QEMU_INTERP_PREFIX', # actually per-target
     'HAVE_GDB_BIN']
@@ -2053,6 +2135,18 @@ foreach k, v: config_host
     config_host_data.set(k, v == 'y' ? 1 : v)
   endif
 endforeach
+
+# Older versions of MinGW do not import _lock_file and _unlock_file properly.
+# This was fixed for v6.0.0 with commit b48e3ac8969d.
+if targetos == 'windows'
+  config_host_data.set('HAVE__LOCK_FILE', cc.links('''
+    #include <stdio.h>
+    int main(void) {
+      _lock_file(NULL);
+      _unlock_file(NULL);
+      return 0;
+    }''', name: '_lock_file and _unlock_file'))
+endif
 
 ########################
 # Target configuration #
@@ -2103,14 +2197,14 @@ host_kconfig = \
   (have_tpm ? ['CONFIG_TPM=y'] : []) + \
   (spice.found() ? ['CONFIG_SPICE=y'] : []) + \
   (have_ivshmem ? ['CONFIG_IVSHMEM=y'] : []) + \
-  ('CONFIG_OPENGL' in config_host ? ['CONFIG_OPENGL=y'] : []) + \
+  (opengl.found() ? ['CONFIG_OPENGL=y'] : []) + \
   (x11.found() ? ['CONFIG_X11=y'] : []) + \
   ('CONFIG_VHOST_USER' in config_host ? ['CONFIG_VHOST_USER=y'] : []) + \
   ('CONFIG_VHOST_VDPA' in config_host ? ['CONFIG_VHOST_VDPA=y'] : []) + \
   ('CONFIG_VHOST_KERNEL' in config_host ? ['CONFIG_VHOST_KERNEL=y'] : []) + \
   (have_virtfs ? ['CONFIG_VIRTFS=y'] : []) + \
   ('CONFIG_LINUX' in config_host ? ['CONFIG_LINUX=y'] : []) + \
-  ('CONFIG_PVRDMA' in config_host ? ['CONFIG_PVRDMA=y'] : []) + \
+  (have_pvrdma ? ['CONFIG_PVRDMA=y'] : []) + \
   (multiprocess_allowed ? ['CONFIG_MULTIPROCESS_ALLOWED=y'] : [])
 
 ignored = [ 'TARGET_XML_FILES', 'TARGET_ABI_DIR', 'TARGET_ARCH' ]
@@ -2154,8 +2248,6 @@ foreach target : target_dirs
       config_all += { sym: 'y' }
       if sym == 'CONFIG_TCG' and tcg_arch == 'tci'
         config_target += { 'CONFIG_TCG_INTERPRETER': 'y' }
-      elif sym == 'CONFIG_XEN' and have_xen_pci_passthrough
-        config_target += { 'CONFIG_XEN_PCI_PASSTHROUGH': 'y' }
       endif
       if target in modular_tcg
         config_target += { 'CONFIG_TCG_MODULAR': 'y' }
@@ -2187,6 +2279,9 @@ foreach target : target_dirs
   if 'TARGET_ABI_DIR' not in config_target
     config_target += {'TARGET_ABI_DIR': config_target['TARGET_ARCH']}
   endif
+  if 'TARGET_BIG_ENDIAN' not in config_target
+    config_target += {'TARGET_BIG_ENDIAN': 'n'}
+  endif
 
   foreach k, v: disassemblers
     if host_arch.startswith(k) or config_target['TARGET_BASE_ARCH'].startswith(k)
@@ -2211,6 +2306,8 @@ foreach target : target_dirs
       config_target_data.set_quoted(k, v)
     elif v == 'y'
       config_target_data.set(k, 1)
+    elif v == 'n'
+      config_target_data.set(k, 0)
     else
       config_target_data.set(k, v)
     endif
@@ -3091,7 +3188,7 @@ qmp = declare_dependency(link_whole: [libqmp])
 
 libchardev = static_library('chardev', chardev_ss.sources() + genh,
                             name_suffix: 'fa',
-                            dependencies: [gnutls],
+                            dependencies: chardev_ss.dependencies(),
                             build_by_default: false)
 
 chardev = declare_dependency(link_whole: libchardev)
@@ -3485,7 +3582,7 @@ summary_info += {'block layer':       have_block}
 summary_info += {'Install blobs':     get_option('install_blobs')}
 summary_info += {'module support':    config_host.has_key('CONFIG_MODULES')}
 if config_host.has_key('CONFIG_MODULES')
-  summary_info += {'alternative module path': config_host.has_key('CONFIG_MODULE_UPGRADES')}
+  summary_info += {'alternative module path': get_option('module_upgrades')}
 endif
 summary_info += {'fuzzing support':   get_option('fuzzing')}
 if have_system
@@ -3540,10 +3637,10 @@ link_args = get_option(link_language + '_link_args')
 if link_args.length() > 0
   summary_info += {'LDFLAGS':         ' '.join(link_args)}
 endif
-summary_info += {'QEMU_CFLAGS':       config_host['QEMU_CFLAGS']}
-summary_info += {'QEMU_CXXFLAGS':     config_host['QEMU_CXXFLAGS']}
-summary_info += {'QEMU_OBJCFLAGS':    config_host['QEMU_OBJCFLAGS']}
-summary_info += {'QEMU_LDFLAGS':      config_host['QEMU_LDFLAGS']}
+summary_info += {'QEMU_CFLAGS':       ' '.join(qemu_cflags)}
+summary_info += {'QEMU_CXXFLAGS':     ' '.join(qemu_cxxflags)}
+summary_info += {'QEMU_OBJCFLAGS':    ' '.join(qemu_objcflags)}
+summary_info += {'QEMU_LDFLAGS':      ' '.join(qemu_ldflags)}
 summary_info += {'profiler':          get_option('profiler')}
 summary_info += {'link-time optimization (LTO)': get_option('b_lto')}
 summary_info += {'PIE':               get_option('b_pie')}
@@ -3653,7 +3750,7 @@ if nettle.found()
 endif
 summary_info += {'AF_ALG support':    have_afalg}
 summary_info += {'rng-none':          get_option('rng_none')}
-summary_info += {'Linux keyring':     config_host.has_key('CONFIG_SECRET_KEYRING')}
+summary_info += {'Linux keyring':     have_keyring}
 summary(summary_info, bool_yn: true, section: 'Crypto')
 
 # Libraries
@@ -3674,11 +3771,11 @@ summary_info += {'curses support':    curses}
 summary_info += {'virgl support':     virgl}
 summary_info += {'curl support':      curl}
 summary_info += {'Multipath support': mpathpersist}
+summary_info += {'PNG support':       png}
 summary_info += {'VNC support':       vnc}
 if vnc.found()
   summary_info += {'VNC SASL support':  sasl}
   summary_info += {'VNC JPEG support':  jpeg}
-  summary_info += {'VNC PNG support':   png}
 endif
 if targetos not in ['darwin', 'haiku', 'windows']
   summary_info += {'OSS support':     oss}
@@ -3699,8 +3796,8 @@ summary_info += {'l2tpv3 support':    have_l2tpv3}
 summary_info += {'Linux AIO support': libaio}
 summary_info += {'Linux io_uring support': linux_io_uring}
 summary_info += {'ATTR/XATTR support': libattr}
-summary_info += {'RDMA support':      config_host.has_key('CONFIG_RDMA')}
-summary_info += {'PVRDMA support':    config_host.has_key('CONFIG_PVRDMA')}
+summary_info += {'RDMA support':      rdma}
+summary_info += {'PVRDMA support':    have_pvrdma}
 summary_info += {'fdt support':       fdt_opt == 'disabled' ? false : fdt_opt}
 summary_info += {'libcap-ng support': libcap_ng}
 summary_info += {'bpf support':       libbpf}
@@ -3713,14 +3810,13 @@ summary_info += {'smartcard support': cacard}
 summary_info += {'U2F support':       u2f}
 summary_info += {'libusb':            libusb}
 summary_info += {'usb net redir':     usbredir}
-summary_info += {'OpenGL support':    config_host.has_key('CONFIG_OPENGL')}
+summary_info += {'OpenGL support (epoxy)': opengl}
 summary_info += {'GBM':               gbm}
 summary_info += {'libiscsi support':  libiscsi}
 summary_info += {'libnfs support':    libnfs}
 if targetos == 'windows'
   if have_ga
     summary_info += {'QGA VSS support':   have_qga_vss}
-    summary_info += {'QGA w32 disk info': have_ntddscsi}
   endif
 endif
 summary_info += {'seccomp support':   seccomp}

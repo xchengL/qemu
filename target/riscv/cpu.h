@@ -23,7 +23,7 @@
 #include "hw/core/cpu.h"
 #include "hw/registerfields.h"
 #include "exec/cpu-defs.h"
-#include "fpu/softfloat-types.h"
+#include "qemu/cpu-float.h"
 #include "qom/object.h"
 #include "qemu/int128.h"
 #include "cpu_bits.h"
@@ -79,11 +79,16 @@ enum {
     RISCV_FEATURE_PMP,
     RISCV_FEATURE_EPMP,
     RISCV_FEATURE_MISA,
-    RISCV_FEATURE_AIA
+    RISCV_FEATURE_AIA,
+    RISCV_FEATURE_DEBUG
 };
 
-#define PRIV_VERSION_1_10_0 0x00011000
-#define PRIV_VERSION_1_11_0 0x00011100
+/* Privileged specification version */
+enum {
+    PRIV_VERSION_1_10_0 = 0,
+    PRIV_VERSION_1_11_0,
+    PRIV_VERSION_1_12_0,
+};
 
 #define VEXT_VERSION_1_00_0 0x00010000
 
@@ -102,6 +107,7 @@ typedef struct CPUArchState CPURISCVState;
 
 #if !defined(CONFIG_USER_ONLY)
 #include "pmp.h"
+#include "debug.h"
 #endif
 
 #define RV_VLEN_MAX 1024
@@ -173,6 +179,14 @@ struct CPUArchState {
     uint64_t mstatus;
 
     uint64_t mip;
+    /*
+     * MIP contains the software writable version of SEIP ORed with the
+     * external interrupt value. The MIP register is always up-to-date.
+     * To keep track of the current source, we also save booleans of the values
+     * here.
+     */
+    bool external_seip;
+    bool software_seip;
 
     uint64_t miclaim;
 
@@ -267,9 +281,13 @@ struct CPUArchState {
     pmp_table_t pmp_state;
     target_ulong mseccfg;
 
+    /* trigger module */
+    target_ulong trigger_cur;
+    type2_trigger_t type2_trig[TRIGGER_TYPE2_NUM];
+
     /* machine specific rdtime callback */
-    uint64_t (*rdtime_fn)(uint32_t);
-    uint32_t rdtime_fn_arg;
+    uint64_t (*rdtime_fn)(void *);
+    void *rdtime_fn_arg;
 
     /* machine specific AIA ireg read-modify-write callback */
 #define AIA_MAKE_IREG(__isel, __priv, __virt, __vgein, __xlen) \
@@ -300,6 +318,11 @@ struct CPUArchState {
     target_ulong spmbase;
     target_ulong upmmask;
     target_ulong upmbase;
+
+    /* CSRs for execution enviornment configuration */
+    uint64_t menvcfg;
+    target_ulong senvcfg;
+    uint64_t henvcfg;
 #endif
     target_ulong cur_pmmask;
     target_ulong cur_pmbase;
@@ -354,7 +377,20 @@ struct RISCVCPUConfig {
     bool ext_zba;
     bool ext_zbb;
     bool ext_zbc;
+    bool ext_zbkb;
+    bool ext_zbkc;
+    bool ext_zbkx;
     bool ext_zbs;
+    bool ext_zk;
+    bool ext_zkn;
+    bool ext_zknd;
+    bool ext_zkne;
+    bool ext_zknh;
+    bool ext_zkr;
+    bool ext_zks;
+    bool ext_zksed;
+    bool ext_zksh;
+    bool ext_zkt;
     bool ext_counters;
     bool ext_ifencei;
     bool ext_icsr;
@@ -370,6 +406,10 @@ struct RISCVCPUConfig {
     bool ext_zve32f;
     bool ext_zve64f;
 
+    uint32_t mvendorid;
+    uint64_t marchid;
+    uint64_t mipid;
+
     /* Vendor-specific custom extensions */
     bool ext_XVentanaCondOps;
 
@@ -383,6 +423,7 @@ struct RISCVCPUConfig {
     bool pmp;
     bool epmp;
     bool aia;
+    bool debug;
     uint64_t resetvec;
 };
 
@@ -451,9 +492,9 @@ void riscv_cpu_set_virt_enabled(CPURISCVState *env, bool enable);
 bool riscv_cpu_two_stage_lookup(int mmu_idx);
 int riscv_cpu_mmu_index(CPURISCVState *env, bool ifetch);
 hwaddr riscv_cpu_get_phys_page_debug(CPUState *cpu, vaddr addr);
-void  riscv_cpu_do_unaligned_access(CPUState *cs, vaddr addr,
-                                    MMUAccessType access_type, int mmu_idx,
-                                    uintptr_t retaddr) QEMU_NORETURN;
+G_NORETURN void  riscv_cpu_do_unaligned_access(CPUState *cs, vaddr addr,
+                                               MMUAccessType access_type, int mmu_idx,
+                                               uintptr_t retaddr);
 bool riscv_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
                         MMUAccessType access_type, int mmu_idx,
                         bool probe, uintptr_t retaddr);
@@ -474,8 +515,8 @@ void riscv_cpu_swap_hypervisor_regs(CPURISCVState *env);
 int riscv_cpu_claim_interrupts(RISCVCPU *cpu, uint64_t interrupts);
 uint64_t riscv_cpu_update_mip(RISCVCPU *cpu, uint64_t mask, uint64_t value);
 #define BOOL_TO_MASK(x) (-!!(x)) /* helper for riscv_cpu_update_mip value */
-void riscv_cpu_set_rdtime_fn(CPURISCVState *env, uint64_t (*fn)(uint32_t),
-                             uint32_t arg);
+void riscv_cpu_set_rdtime_fn(CPURISCVState *env, uint64_t (*fn)(void *),
+                             void *arg);
 void riscv_cpu_set_aia_ireg_rmw_fn(CPURISCVState *env, uint32_t priv,
                                    int (*rmw_fn)(void *arg,
                                                  target_ulong reg,
@@ -487,8 +528,8 @@ void riscv_cpu_set_aia_ireg_rmw_fn(CPURISCVState *env, uint32_t priv,
 void riscv_cpu_set_mode(CPURISCVState *env, target_ulong newpriv);
 
 void riscv_translate_init(void);
-void QEMU_NORETURN riscv_raise_exception(CPURISCVState *env,
-                                         uint32_t exception, uintptr_t pc);
+G_NORETURN void riscv_raise_exception(CPURISCVState *env,
+                                      uint32_t exception, uintptr_t pc);
 
 target_ulong riscv_cpu_get_fflags(CPURISCVState *env);
 void riscv_cpu_set_fflags(CPURISCVState *env, target_ulong);
@@ -654,6 +695,8 @@ typedef struct {
     riscv_csr_op_fn op;
     riscv_csr_read128_fn read128;
     riscv_csr_write128_fn write128;
+    /* The default priv spec version should be PRIV_VERSION_1_10_0 (i.e 0) */
+    uint32_t min_priv_ver;
 } riscv_csr_operations;
 
 /* CSR function table constants */

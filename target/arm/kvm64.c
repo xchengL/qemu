@@ -16,7 +16,6 @@
 #include <linux/elf.h>
 #include <linux/kvm.h>
 
-#include "qemu-common.h"
 #include "qapi/error.h"
 #include "cpu.h"
 #include "qemu/timer.h"
@@ -209,7 +208,7 @@ static int insert_hw_watchpoint(target_ulong addr,
                                 target_ulong len, int type)
 {
     HWWatchpoint wp = {
-        .wcr = 1, /* E=1, enable */
+        .wcr = R_DBGWCR_E_MASK, /* E=1, enable */
         .wvr = addr & (~0x7ULL),
         .details = { .vaddr = addr, .len = len }
     };
@@ -222,19 +221,19 @@ static int insert_hw_watchpoint(target_ulong addr,
      * HMC=0 SSC=0 PAC=3 will hit EL0 or EL1, any security state,
      * valid whether EL3 is implemented or not
      */
-    wp.wcr = deposit32(wp.wcr, 1, 2, 3);
+    wp.wcr = FIELD_DP64(wp.wcr, DBGWCR, PAC, 3);
 
     switch (type) {
     case GDB_WATCHPOINT_READ:
-        wp.wcr = deposit32(wp.wcr, 3, 2, 1);
+        wp.wcr = FIELD_DP64(wp.wcr, DBGWCR, LSC, 1);
         wp.details.flags = BP_MEM_READ;
         break;
     case GDB_WATCHPOINT_WRITE:
-        wp.wcr = deposit32(wp.wcr, 3, 2, 2);
+        wp.wcr = FIELD_DP64(wp.wcr, DBGWCR, LSC, 2);
         wp.details.flags = BP_MEM_WRITE;
         break;
     case GDB_WATCHPOINT_ACCESS:
-        wp.wcr = deposit32(wp.wcr, 3, 2, 3);
+        wp.wcr = FIELD_DP64(wp.wcr, DBGWCR, LSC, 3);
         wp.details.flags = BP_MEM_ACCESS;
         break;
     default:
@@ -253,8 +252,8 @@ static int insert_hw_watchpoint(target_ulong addr,
             int bits = ctz64(len);
 
             wp.wvr &= ~((1 << bits) - 1);
-            wp.wcr = deposit32(wp.wcr, 24, 4, bits);
-            wp.wcr = deposit32(wp.wcr, 5, 8, 0xff);
+            wp.wcr = FIELD_DP64(wp.wcr, DBGWCR, MASK, bits);
+            wp.wcr = FIELD_DP64(wp.wcr, DBGWCR, BAS, 0xff);
         } else {
             return -ENOBUFS;
         }
@@ -1023,7 +1022,7 @@ static int kvm_arch_put_fpsimd(CPUState *cs)
 
     for (i = 0; i < 32; i++) {
         uint64_t *q = aa64_vfp_qreg(env, i);
-#ifdef HOST_WORDS_BIGENDIAN
+#if HOST_BIG_ENDIAN
         uint64_t fp_val[2] = { q[1], q[0] };
         reg.addr = (uintptr_t)fp_val;
 #else
@@ -1242,7 +1241,7 @@ static int kvm_arch_get_fpsimd(CPUState *cs)
         if (ret) {
             return ret;
         } else {
-#ifdef HOST_WORDS_BIGENDIAN
+#if HOST_BIG_ENDIAN
             uint64_t t;
             t = q[0], q[0] = q[1], q[1] = t;
 #endif

@@ -83,13 +83,11 @@ qga_ss = qga_ss.apply(config_host, strict: false)
 gen_tlb = []
 qga_libs = []
 if targetos == 'windows'
-  qga_libs += ['-lws2_32', '-lwinmm', '-lpowrprof', '-lwtsapi32', '-lwininet', '-liphlpapi', '-lnetapi32']
+  qga_libs += ['-lws2_32', '-lwinmm', '-lpowrprof', '-lwtsapi32', '-lwininet', '-liphlpapi', '-lnetapi32',
+               '-lsetupapi', '-lcfgmgr32']
   if have_qga_vss
     qga_libs += ['-lole32', '-loleaut32', '-lshlwapi', '-lstdc++', '-Wl,--enable-stdcall-fixup']
     subdir('vss-win32')
-  endif
-  if have_ntddscsi
-    qga_libs += ['-lsetupapi', '-lcfgmgr32']
   endif
 endif
 
@@ -131,7 +129,7 @@ if targetos == 'windows'
                               wixl, '-o', '@OUTPUT0@', '@INPUT0@',
                               qemu_ga_msi_arch[cpu],
                               qemu_ga_msi_vss,
-                              '-D', 'Mingw_dlls=' + config_host['QEMU_GA_MSI_MINGW_DLL_PATH'],
+                              '-D', 'Mingw_bin=' + config_host['QEMU_GA_MSI_MINGW_BIN_PATH'],
                             ])
     all_qga += [qga_msi]
     alias_target('msi', qga_msi)

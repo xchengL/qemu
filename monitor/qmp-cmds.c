@@ -14,7 +14,6 @@
  */
 
 #include "qemu/osdep.h"
-#include "qemu-common.h"
 #include "qemu/cutils.h"
 #include "qemu/option.h"
 #include "monitor/monitor.h"
@@ -85,7 +84,7 @@ void qmp_stop(Error **errp)
 {
     /* if there is a dump in background, we should wait until the dump
      * finished */
-    if (dump_in_progress()) {
+    if (qemu_system_dump_in_progress()) {
         error_setg(errp, "There is a dump in process, please wait.");
         return;
     }
@@ -115,7 +114,7 @@ void qmp_cont(Error **errp)
 
     /* if there is a dump in background, we should wait until the dump
      * finished */
-    if (dump_in_progress()) {
+    if (qemu_system_dump_in_progress()) {
         error_setg(errp, "There is a dump in process, please wait.");
         return;
     }
@@ -338,6 +337,21 @@ void qmp_display_reload(DisplayReloadOptions *arg, Error **errp)
         if (arg->u.vnc.has_tls_certs && arg->u.vnc.tls_certs) {
             vnc_display_reload_certs(NULL, errp);
         }
+#else
+        error_setg(errp, "vnc is invalid, missing 'CONFIG_VNC'");
+#endif
+        break;
+    default:
+        abort();
+    }
+}
+
+void qmp_display_update(DisplayUpdateOptions *arg, Error **errp)
+{
+    switch (arg->type) {
+    case DISPLAY_UPDATE_TYPE_VNC:
+#ifdef CONFIG_VNC
+        vnc_display_update(&arg->u.vnc, errp);
 #else
         error_setg(errp, "vnc is invalid, missing 'CONFIG_VNC'");
 #endif

@@ -336,6 +336,24 @@ for the RISC-V ``virt`` machine and ``sifive_u`` machine.
 The ``-no-quit`` was a synonym for ``-display ...,window-close=off`` which
 should be used instead.
 
+``--enable-fips`` (removed in 7.1)
+''''''''''''''''''''''''''''''''''
+
+This option restricted usage of certain cryptographic algorithms when
+the host is operating in FIPS mode.
+
+If FIPS compliance is required, QEMU should be built with the ``libgcrypt``
+or ``gnutls`` library enabled as a cryptography provider.
+
+Neither the ``nettle`` library, or the built-in cryptography provider are
+supported on FIPS enabled hosts.
+
+``-writeconfig`` (removed in 7.1)
+'''''''''''''''''''''''''''''''''
+
+The ``-writeconfig`` option was not able to serialize the entire contents
+of the QEMU command line.  It is thus considered a failed experiment
+and removed without a replacement.
 
 QEMU Machine Protocol (QMP) commands
 ------------------------------------
@@ -355,7 +373,8 @@ documentation of ``query-hotpluggable-cpus`` for additional details.
 ``change`` (removed in 6.0)
 '''''''''''''''''''''''''''
 
-Use ``blockdev-change-medium`` or ``change-vnc-password`` instead.
+Use ``blockdev-change-medium`` or ``change-vnc-password`` or
+``display-update`` instead.
 
 ``query-events`` (removed in 6.0)
 '''''''''''''''''''''''''''''''''

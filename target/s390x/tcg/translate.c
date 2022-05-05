@@ -263,7 +263,7 @@ static inline int vec_reg_offset(uint8_t reg, uint8_t enr, MemOp es)
      * 16 byte operations to handle it in a special way.
      */
     g_assert(es <= MO_64);
-#ifndef HOST_WORDS_BIGENDIAN
+#if !HOST_BIG_ENDIAN
     offs ^= (8 - bytes);
 #endif
     return offs + vec_full_reg_offset(reg);
@@ -2622,7 +2622,7 @@ static DisasJumpType op_icm(DisasContext *s, DisasOps *o)
                 tcg_gen_qemu_ld8u(tmp, o->in2, get_mem_index(s));
                 tcg_gen_addi_i64(o->in2, o->in2, 1);
                 tcg_gen_deposit_i64(o->out, o->out, tmp, pos, 8);
-                ccm |= 0xff << pos;
+                ccm |= 0xffull << pos;
             }
             m3 = (m3 << 1) & 0xf;
             pos -= 8;
@@ -6222,7 +6222,8 @@ enum DisasInsnEnum {
 #define FAC_PCI         S390_FEAT_ZPCI /* z/PCI facility */
 #define FAC_AIS         S390_FEAT_ADAPTER_INT_SUPPRESSION
 #define FAC_V           S390_FEAT_VECTOR /* vector facility */
-#define FAC_VE          S390_FEAT_VECTOR_ENH /* vector enhancements facility 1 */
+#define FAC_VE          S390_FEAT_VECTOR_ENH  /* vector enhancements facility 1 */
+#define FAC_VE2         S390_FEAT_VECTOR_ENH2 /* vector enhancements facility 2 */
 #define FAC_MIE2        S390_FEAT_MISC_INSTRUCTION_EXT2 /* miscellaneous-instruction-extensions facility 2 */
 #define FAC_MIE3        S390_FEAT_MISC_INSTRUCTION_EXT3 /* miscellaneous-instruction-extensions facility 3 */
 
@@ -6660,16 +6661,17 @@ static void s390x_tr_tb_stop(DisasContextBase *dcbase, CPUState *cs)
     }
 }
 
-static void s390x_tr_disas_log(const DisasContextBase *dcbase, CPUState *cs)
+static void s390x_tr_disas_log(const DisasContextBase *dcbase,
+                               CPUState *cs, FILE *logfile)
 {
     DisasContext *dc = container_of(dcbase, DisasContext, base);
 
     if (unlikely(dc->ex_value)) {
-        /* ??? Unfortunately log_target_disas can't use host memory.  */
-        qemu_log("IN: EXECUTE %016" PRIx64, dc->ex_value);
+        /* ??? Unfortunately target_disas can't use host memory.  */
+        fprintf(logfile, "IN: EXECUTE %016" PRIx64, dc->ex_value);
     } else {
-        qemu_log("IN: %s\n", lookup_symbol(dc->base.pc_first));
-        log_target_disas(cs, dc->base.pc_first, dc->base.tb->size);
+        fprintf(logfile, "IN: %s\n", lookup_symbol(dc->base.pc_first));
+        target_disas(logfile, cs, dc->base.pc_first, dc->base.tb->size);
     }
 }
 

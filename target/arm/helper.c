@@ -27,7 +27,6 @@
 #include "sysemu/cpus.h"
 #include "sysemu/cpu-timers.h"
 #include "sysemu/kvm.h"
-#include "sysemu/tcg.h"
 #include "qemu/range.h"
 #include "qapi/qapi-commands-machine-target.h"
 #include "qapi/error.h"
@@ -4785,18 +4784,6 @@ static void sctlr_write(CPUARMState *env, const ARMCPRegInfo *ri,
     }
 }
 
-static CPAccessResult fpexc32_access(CPUARMState *env, const ARMCPRegInfo *ri,
-                                     bool isread)
-{
-    if ((env->cp15.cptr_el[2] & CPTR_TFP) && arm_current_el(env) == 2) {
-        return CP_ACCESS_TRAP_FP_EL2;
-    }
-    if (env->cp15.cptr_el[3] & CPTR_TFP) {
-        return CP_ACCESS_TRAP_FP_EL3;
-    }
-    return CP_ACCESS_OK;
-}
-
 static void sdcr_write(CPUARMState *env, const ARMCPRegInfo *ri,
                        uint64_t value)
 {
@@ -5098,9 +5085,8 @@ static const ARMCPRegInfo v8_cp_reginfo[] = {
       .access = PL1_RW, .readfn = spsel_read, .writefn = spsel_write },
     { .name = "FPEXC32_EL2", .state = ARM_CP_STATE_AA64,
       .opc0 = 3, .opc1 = 4, .crn = 5, .crm = 3, .opc2 = 0,
-      .type = ARM_CP_ALIAS,
-      .fieldoffset = offsetof(CPUARMState, vfp.xregs[ARM_VFP_FPEXC]),
-      .access = PL2_RW, .accessfn = fpexc32_access },
+      .access = PL2_RW, .type = ARM_CP_ALIAS | ARM_CP_FPU,
+      .fieldoffset = offsetof(CPUARMState, vfp.xregs[ARM_VFP_FPEXC]) },
     { .name = "DACR32_EL2", .state = ARM_CP_STATE_AA64,
       .opc0 = 3, .opc1 = 4, .crn = 3, .crm = 0, .opc2 = 0,
       .access = PL2_RW, .resetvalue = 0,
@@ -6334,12 +6320,12 @@ void hw_watchpoint_update(ARMCPU *cpu, int n)
         env->cpu_watchpoint[n] = NULL;
     }
 
-    if (!extract64(wcr, 0, 1)) {
+    if (!FIELD_EX64(wcr, DBGWCR, E)) {
         /* E bit clear : watchpoint disabled */
         return;
     }
 
-    switch (extract64(wcr, 3, 2)) {
+    switch (FIELD_EX64(wcr, DBGWCR, LSC)) {
     case 0:
         /* LSC 00 is reserved and must behave as if the wp is disabled */
         return;
@@ -6358,7 +6344,7 @@ void hw_watchpoint_update(ARMCPU *cpu, int n)
      * CONSTRAINED UNPREDICTABLE; we opt to ignore BAS in this case,
      * thus generating a watchpoint for every byte in the masked region.
      */
-    mask = extract64(wcr, 24, 4);
+    mask = FIELD_EX64(wcr, DBGWCR, MASK);
     if (mask == 1 || mask == 2) {
         /* Reserved values of MASK; we must act as if the mask value was
          * some non-reserved value, or as if the watchpoint were disabled.
@@ -6375,7 +6361,7 @@ void hw_watchpoint_update(ARMCPU *cpu, int n)
         wvr &= ~(len - 1);
     } else {
         /* Watchpoint covers bytes defined by the byte address select bits */
-        int bas = extract64(wcr, 5, 8);
+        int bas = FIELD_EX64(wcr, DBGWCR, BAS);
         int basstart;
 
         if (extract64(wvr, 2, 1)) {
@@ -8642,7 +8628,7 @@ static void add_cpreg_to_hashtable(ARMCPU *cpu, const ARMCPRegInfo *r,
                 r2->cp = 15;
             }
 
-#ifdef HOST_WORDS_BIGENDIAN
+#if HOST_BIG_ENDIAN
             if (r2->fieldoffset) {
                 r2->fieldoffset += sizeof(uint32_t);
             }
@@ -10182,7 +10168,7 @@ static void arm_cpu_do_interrupt_aarch64(CPUState *cs)
     }
 
     pstate_write(env, PSTATE_DAIF | new_mode);
-    env->aarch64 = 1;
+    env->aarch64 = true;
     aarch64_restore_sp(env, new_el);
     helper_rebuild_hflags_a64(env, new_el);
 

@@ -81,6 +81,18 @@ FIELD(V7M_EXCRET, RES1, 7, 25) /* including the must-be-1 prefix */
  */
 #define FNC_RETURN_MIN_MAGIC 0xfefffffe
 
+/* Bit definitions for DBGWCRn and DBGWCRn_EL1 */
+FIELD(DBGWCR, E, 0, 1)
+FIELD(DBGWCR, PAC, 1, 2)
+FIELD(DBGWCR, LSC, 3, 2)
+FIELD(DBGWCR, BAS, 5, 8)
+FIELD(DBGWCR, HMC, 13, 1)
+FIELD(DBGWCR, SSC, 14, 2)
+FIELD(DBGWCR, LBN, 16, 4)
+FIELD(DBGWCR, WT, 20, 1)
+FIELD(DBGWCR, MASK, 24, 5)
+FIELD(DBGWCR, SSCE, 29, 1)
+
 /* We use a few fake FSR values for internal purposes in M profile.
  * M profile cores don't have A/R format FSRs, but currently our
  * get_phys_addr() code assumes A/R profile and reports failures via
@@ -102,13 +114,13 @@ FIELD(V7M_EXCRET, RES1, 7, 25) /* including the must-be-1 prefix */
  * and target exception level. This should be called from helper functions,
  * and never returns because we will longjump back up to the CPU main loop.
  */
-void QEMU_NORETURN raise_exception(CPUARMState *env, uint32_t excp,
-                                   uint32_t syndrome, uint32_t target_el);
+G_NORETURN void raise_exception(CPUARMState *env, uint32_t excp,
+                                uint32_t syndrome, uint32_t target_el);
 
 /*
  * Similarly, but also use unwinding to restore cpu state.
  */
-void QEMU_NORETURN raise_exception_ra(CPUARMState *env, uint32_t excp,
+G_NORETURN void raise_exception_ra(CPUARMState *env, uint32_t excp,
                                       uint32_t syndrome, uint32_t target_el,
                                       uintptr_t ra);
 
@@ -606,9 +618,9 @@ ARMMMUIdx arm_v7m_mmu_idx_for_secstate(CPUARMState *env, bool secstate);
 bool arm_s1_regime_using_lpae_format(CPUARMState *env, ARMMMUIdx mmu_idx);
 
 /* Raise a data fault alignment exception for the specified virtual address */
-void arm_cpu_do_unaligned_access(CPUState *cs, vaddr vaddr,
-                                 MMUAccessType access_type,
-                                 int mmu_idx, uintptr_t retaddr) QEMU_NORETURN;
+G_NORETURN void arm_cpu_do_unaligned_access(CPUState *cs, vaddr vaddr,
+                                            MMUAccessType access_type,
+                                            int mmu_idx, uintptr_t retaddr);
 
 /* arm_cpu_do_transaction_failed: handle a memory system error response
  * (eg "no device/memory present at address") by raising an external abort
