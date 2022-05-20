@@ -19,7 +19,7 @@
 #define O_PATH_9P_UTIL 0
 #endif
 
-#if !defined(CONFIG_LINUX)
+#if !defined(CONFIG_LINUX) && !defined(CONFIG_WIN32)
 
 /*
  * Generates a Linux device number (a.k.a. dev_t) for given device major
@@ -41,17 +41,17 @@ static inline uint64_t makedev_dotl(uint32_t dev_major, uint32_t dev_minor)
     return dev;
 }
 
-#endif
+#endif /* !CONFIG_LINUX and !CONFIG_WIN32 */
 
 /*
  * Converts given device number from host's device number format to Linux
  * device number format. As both the size of type dev_t and encoding of
  * dev_t is system dependant, we have to convert them for Linux guests if
- * host is not running Linux.
+ * host is not running Linux and Windows.
  */
 static inline uint64_t host_dev_to_dotl_dev(dev_t dev)
 {
-#ifdef CONFIG_LINUX
+#if defined(CONFIG_LINUX) || defined(CONFIG_WIN32)
     return dev;
 #else
     return makedev_dotl(major(dev), minor(dev));
