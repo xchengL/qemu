@@ -466,7 +466,10 @@ add_project_arguments(config_host['GLIB_CFLAGS'].split(),
                       native: false, language: ['c', 'cpp', 'objc'])
 glib = declare_dependency(compile_args: config_host['GLIB_CFLAGS'].split(),
                           link_args: config_host['GLIB_LIBS'].split(),
-                          version: config_host['GLIB_VERSION'])
+                          version: config_host['GLIB_VERSION'],
+                          variables: {
+                            'bindir': config_host['GLIB_BINDIR'],
+                          })
 # override glib dep with the configure results (for subprojects)
 meson.override_dependency('glib-2.0', glib)
 
@@ -3732,12 +3735,8 @@ foreach target: target_dirs
     config_cross_tcg = keyval.load(tcg_mak)
     target = config_cross_tcg['TARGET_NAME']
     compiler = ''
-    if 'DOCKER_CROSS_CC_GUEST' in config_cross_tcg
-      summary_info += {target + ' tests': config_cross_tcg['DOCKER_CROSS_CC_GUEST'] +
-                                          ' via ' + config_cross_tcg['DOCKER_IMAGE']}
-    elif 'CROSS_CC_GUEST' in config_cross_tcg
-      summary_info += {target + ' tests'
-                                : config_cross_tcg['CROSS_CC_GUEST'] }
+    if 'CC' in config_cross_tcg
+      summary_info += {target + ' tests': config_cross_tcg['CC']}
     endif
    endif
 endforeach
