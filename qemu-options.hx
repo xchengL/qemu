@@ -36,7 +36,8 @@ DEF("machine", HAS_ARG, QEMU_OPTION_machine, \
     "                nvdimm=on|off controls NVDIMM support (default=off)\n"
     "                memory-encryption=@var{} memory encryption object to use (default=none)\n"
     "                hmat=on|off controls ACPI HMAT support (default=off)\n"
-    "                memory-backend='backend-id' specifies explicitly provided backend for main RAM (default=none)\n",
+    "                memory-backend='backend-id' specifies explicitly provided backend for main RAM (default=none)\n"
+    "                cxl-fmw.0.targets.0=firsttarget,cxl-fmw.0.targets.1=secondtarget,cxl-fmw.0.size=size[,cxl-fmw.0.interleave-granularity=granularity]\n",
     QEMU_ARCH_ALL)
 SRST
 ``-machine [type=]name[,prop=value[,...]]``
@@ -124,6 +125,38 @@ SRST
             -object memory-backend-ram,id=pc.ram,size=512M,x-use-canonical-path-for-ramblock-id=off
             -machine memory-backend=pc.ram
             -m 512M
+
+    ``cxl-fmw.0.targets.0=firsttarget,cxl-fmw.0.targets.1=secondtarget,cxl-fmw.0.size=size[,cxl-fmw.0.interleave-granularity=granularity]``
+        Define a CXL Fixed Memory Window (CFMW).
+
+        Described in the CXL 2.0 ECN: CEDT CFMWS & QTG _DSM.
+
+        They are regions of Host Physical Addresses (HPA) on a system which
+        may be interleaved across one or more CXL host bridges.  The system
+        software will assign particular devices into these windows and
+        configure the downstream Host-managed Device Memory (HDM) decoders
+        in root ports, switch ports and devices appropriately to meet the
+        interleave requirements before enabling the memory devices.
+
+        ``targets.X=target`` provides the mapping to CXL host bridges
+        which may be identified by the id provied in the -device entry.
+        Multiple entries are needed to specify all the targets when
+        the fixed memory window represents interleaved memory. X is the
+        target index from 0.
+
+        ``size=size`` sets the size of the CFMW. This must be a multiple of
+        256MiB. The region will be aligned to 256MiB but the location is
+        platform and configuration dependent.
+
+        ``interleave-granularity=granularity`` sets the granularity of
+        interleave. Default 256KiB. Only 256KiB, 512KiB, 1024KiB, 2048KiB
+        4096KiB, 8192KiB and 16384KiB granularities supported.
+
+        Example:
+
+        ::
+
+            -machine cxl-fmw.0.targets.0=cxl.0,cxl-fmw.0.targets.1=cxl.1,cxl-fmw.0.size=128G,cxl-fmw.0.interleave-granularity=512k
 ERST
 
 DEF("M", HAS_ARG, QEMU_OPTION_M,
@@ -465,44 +498,6 @@ SRST
         -numa hmat-lb,initiator=0,target=1,hierarchy=memory,data-type=access-bandwidth,bandwidth=100M \
         -numa hmat-cache,node-id=0,size=10K,level=1,associativity=direct,policy=write-back,line=8 \
         -numa hmat-cache,node-id=1,size=10K,level=1,associativity=direct,policy=write-back,line=8
-ERST
-
-DEF("cxl-fixed-memory-window", HAS_ARG, QEMU_OPTION_cxl_fixed_memory_window,
-    "-cxl-fixed-memory-window targets.0=firsttarget,targets.1=secondtarget,size=size[,interleave-granularity=granularity]\n",
-    QEMU_ARCH_ALL)
-SRST
-``-cxl-fixed-memory-window targets.0=firsttarget,targets.1=secondtarget,size=size[,interleave-granularity=granularity]``
-    Define a CXL Fixed Memory Window (CFMW).
-
-    Described in the CXL 2.0 ECN: CEDT CFMWS & QTG _DSM.
-
-    They are regions of Host Physical Addresses (HPA) on a system which
-    may be interleaved across one or more CXL host bridges.  The system
-    software will assign particular devices into these windows and
-    configure the downstream Host-managed Device Memory (HDM) decoders
-    in root ports, switch ports and devices appropriately to meet the
-    interleave requirements before enabling the memory devices.
-
-    ``targets.X=firsttarget`` provides the mapping to CXL host bridges
-    which may be identified by the id provied in the -device entry.
-    Multiple entries are needed to specify all the targets when
-    the fixed memory window represents interleaved memory. X is the
-    target index from 0.
-
-    ``size=size`` sets the size of the CFMW. This must be a multiple of
-    256MiB. The region will be aligned to 256MiB but the location is
-    platform and configuration dependent.
-
-    ``interleave-granularity=granularity`` sets the granularity of
-    interleave. Default 256KiB. Only 256KiB, 512KiB, 1024KiB, 2048KiB
-    4096KiB, 8192KiB and 16384KiB granularities supported.
-
-    Example:
-
-    ::
-
-        -cxl-fixed-memory-window targets.0=cxl.0,targets.1=cxl.1,size=128G,interleave-granularity=512k
-
 ERST
 
 DEF("add-fd", HAS_ARG, QEMU_OPTION_add_fd,
@@ -1938,8 +1933,8 @@ DEF("display", HAS_ARG, QEMU_OPTION_display,
     "-display spice-app[,gl=on|off]\n"
 #endif
 #if defined(CONFIG_SDL)
-    "-display sdl[,alt_grab=on|off][,ctrl_grab=on|off][,gl=on|core|es|off]\n"
-    "            [,grab-mod=<mod>][,show-cursor=on|off][,window-close=on|off]\n"
+    "-display sdl[,gl=on|core|es|off][,grab-mod=<mod>][,show-cursor=on|off]\n"
+    "            [,window-close=on|off]\n"
 #endif
 #if defined(CONFIG_GTK)
     "-display gtk[,full-screen=on|off][,gl=on|off][,grab-on-hover=on|off]\n"
@@ -1981,9 +1976,8 @@ DEF("display", HAS_ARG, QEMU_OPTION_display,
     , QEMU_ARCH_ALL)
 SRST
 ``-display type``
-    Select type of display to use. This option is a replacement for the
-    old style -sdl/-curses/... options. Use ``-display help`` to list
-    the available display types. Valid values for type are
+    Select type of display to use. Use ``-display help`` to list the available
+    display types. Valid values for type are
 
     ``spice-app[,gl=on|off]``
         Start QEMU as a Spice server and launch the default Spice client
@@ -2011,12 +2005,6 @@ SRST
         ``grab-mod=<mods>`` : Used to select the modifier keys for toggling
         the mouse grabbing in conjunction with the "g" key. ``<mods>`` can be
         either ``lshift-lctrl-lalt`` or ``rctrl``.
-
-        ``alt_grab=on|off`` : Use Control+Alt+Shift-g to toggle mouse grabbing.
-        This parameter is deprecated - use ``grab-mod`` instead.
-
-        ``ctrl_grab=on|off`` : Use Right-Control-g to toggle mouse grabbing.
-        This parameter is deprecated - use ``grab-mod`` instead.
 
         ``gl=on|off|core|es`` : Use OpenGL for displaying
 
@@ -2089,47 +2077,6 @@ SRST
     the monitor (unless redirected elsewhere explicitly). Therefore, you
     can still use QEMU to debug a Linux kernel with a serial console.
     Use C-a h for help on switching between the console and monitor.
-ERST
-
-DEF("curses", 0, QEMU_OPTION_curses,
-    "-curses         shorthand for -display curses\n",
-    QEMU_ARCH_ALL)
-SRST
-``-curses``
-    Normally, if QEMU is compiled with graphical window support, it
-    displays output such as guest graphics, guest console, and the QEMU
-    monitor in a window. With this option, QEMU can display the VGA
-    output when in text mode using a curses/ncurses interface. Nothing
-    is displayed in graphical mode.
-ERST
-
-DEF("alt-grab", 0, QEMU_OPTION_alt_grab,
-    "-alt-grab       use Ctrl-Alt-Shift to grab mouse (instead of Ctrl-Alt)\n",
-    QEMU_ARCH_ALL)
-SRST
-``-alt-grab``
-    Use Ctrl-Alt-Shift to grab mouse (instead of Ctrl-Alt). Note that
-    this also affects the special keys (for fullscreen, monitor-mode
-    switching, etc). This option is deprecated - please use
-    ``-display sdl,grab-mod=lshift-lctrl-lalt`` instead.
-ERST
-
-DEF("ctrl-grab", 0, QEMU_OPTION_ctrl_grab,
-    "-ctrl-grab      use Right-Ctrl to grab mouse (instead of Ctrl-Alt)\n",
-    QEMU_ARCH_ALL)
-SRST
-``-ctrl-grab``
-    Use Right-Ctrl to grab mouse (instead of Ctrl-Alt). Note that this
-    also affects the special keys (for fullscreen, monitor-mode
-    switching, etc). This option is deprecated - please use
-    ``-display sdl,grab-mod=rctrl`` instead.
-ERST
-
-DEF("sdl", 0, QEMU_OPTION_sdl,
-    "-sdl            shorthand for -display sdl\n", QEMU_ARCH_ALL)
-SRST
-``-sdl``
-    Enable SDL.
 ERST
 
 #ifdef CONFIG_SPICE

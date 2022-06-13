@@ -2349,6 +2349,7 @@ disassemblers = {
   'sh4' : ['CONFIG_SH4_DIS'],
   'sparc' : ['CONFIG_SPARC_DIS'],
   'xtensa' : ['CONFIG_XTENSA_DIS'],
+  'loongarch' : ['CONFIG_LOONGARCH_DIS'],
 }
 if link_language == 'cpp'
   disassemblers += {
@@ -3175,14 +3176,23 @@ foreach d, list : target_modules
 endforeach
 
 if enable_modules
-  modinfo_src = custom_target('modinfo.c',
-                              output: 'modinfo.c',
-                              input: modinfo_files,
-                              command: [modinfo_generate, '@INPUT@'],
-                              capture: true)
-  modinfo_lib = static_library('modinfo', modinfo_src)
-  modinfo_dep = declare_dependency(link_whole: modinfo_lib)
-  softmmu_ss.add(modinfo_dep)
+  foreach target : target_dirs
+    if target.endswith('-softmmu')
+      config_target = config_target_mak[target]
+      config_devices_mak = target + '-config-devices.mak'
+      modinfo_src = custom_target('modinfo-' + target + '.c',
+                                  output: 'modinfo-' + target + '.c',
+                                  input: modinfo_files,
+                                  command: [modinfo_generate, '--devices', config_devices_mak, '@INPUT@'],
+                                  capture: true)
+
+      modinfo_lib = static_library('modinfo-' + target + '.c', modinfo_src)
+      modinfo_dep = declare_dependency(link_with: modinfo_lib)
+
+      arch = config_target['TARGET_NAME'] == 'sparc64' ? 'sparc64' : config_target['TARGET_BASE_ARCH']
+      hw_arch[arch].add(modinfo_dep)
+    endif
+  endforeach
 endif
 
 nm = find_program('nm')
@@ -3285,6 +3295,9 @@ foreach m : block_mods + softmmu_mods
                 install: true,
                 install_dir: qemu_moddir)
 endforeach
+if emulator_modules.length() > 0
+  alias_target('modules', emulator_modules)
+endif
 
 softmmu_ss.add(authz, blockdev, chardev, crypto, io, qmp)
 common_ss.add(qom, qemuutil)
