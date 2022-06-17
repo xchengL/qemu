@@ -324,6 +324,7 @@ struct CPUState {
 
     struct QemuThread *thread;
 #ifdef _WIN32
+    QemuSemaphore sem;
     HANDLE hThread;
 #endif
     int thread_id;

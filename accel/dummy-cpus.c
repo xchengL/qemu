@@ -18,11 +18,33 @@
 #include "qemu/main-loop.h"
 #include "hw/core/cpu.h"
 
+#ifdef _WIN32
+static void do_wait(CPUState *cpu)
+{
+    qemu_sem_wait(&cpu->sem);
+}
+#else
+static void do_wait(CPUState *cpu)
+{
+    sigset_t waitset;
+    int r;
+
+    sigemptyset(&waitset);
+    sigaddset(&waitset, SIG_IPI);
+    do {
+        int sig;
+        r = sigwait(&waitset, &sig);
+    } while (r == -1 && (errno == EAGAIN || errno == EINTR));
+    if (r == -1) {
+        perror("sigwait");
+        exit(1);
+    }
+}
+#endif /* _WIN32 */
+
 static void *dummy_cpu_thread_fn(void *arg)
 {
     CPUState *cpu = arg;
-    sigset_t waitset;
-    int r;
 
     rcu_register_thread();
 
@@ -32,23 +54,13 @@ static void *dummy_cpu_thread_fn(void *arg)
     cpu->can_do_io = 1;
     current_cpu = cpu;
 
-    sigemptyset(&waitset);
-    sigaddset(&waitset, SIG_IPI);
-
     /* signal CPU creation */
     cpu_thread_signal_created(cpu);
     qemu_guest_random_seed_thread_part2(cpu->random_seed);
 
     do {
         qemu_mutex_unlock_iothread();
-        do {
-            int sig;
-            r = sigwait(&waitset, &sig);
-        } while (r == -1 && (errno == EAGAIN || errno == EINTR));
-        if (r == -1) {
-            perror("sigwait");
-            exit(1);
-        }
+        do_wait(cpu);
         qemu_mutex_lock_iothread();
         qemu_wait_io_event(cpu);
     } while (!cpu->unplug);
@@ -69,4 +81,7 @@ void dummy_start_vcpu_thread(CPUState *cpu)
              cpu->cpu_index);
     qemu_thread_create(cpu->thread, thread_name, dummy_cpu_thread_fn, cpu,
                        QEMU_THREAD_JOINABLE);
+#ifdef _WIN32
+    qemu_sem_init(&cpu->sem, 0);
+#endif
 }
