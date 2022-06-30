@@ -32,6 +32,19 @@
 #include "qemu/cutils.h"
 #include "trace.h"
 
+#if !defined(CONFIG_WIN32)
+    #define QEMU_SOCKET_HAS_AFUNIX
+#elif defined(CONFIG_WIN32) && \
+    defined(__MINGW64_VERSION_MAJOR) && \
+    __MINGW64_VERSION_MAJOR >= 10
+
+    #include <windows.h>
+    #include <afunix.h>
+
+    #define QEMU_SOCKET_HAS_AFUNIX
+    #define WIN_VER_AF_UNIX 17063
+#endif
+
 #ifndef AI_ADDRCONFIG
 # define AI_ADDRCONFIG 0
 #endif
@@ -880,7 +893,7 @@ static int vsock_parse(VsockSocketAddress *addr, const char *str,
 }
 #endif /* CONFIG_AF_VSOCK */
 
-#ifndef _WIN32
+#ifdef QEMU_SOCKET_HAS_AFUNIX
 
 static bool saddr_is_abstract(UnixSocketAddress *saddr)
 {
@@ -900,6 +913,27 @@ static bool saddr_is_tight(UnixSocketAddress *saddr)
 #endif
 }
 
+#ifdef CONFIG_WIN32
+static unsigned long qemu_get_win_build_number(Error **errp)
+{
+    typedef long (WINAPI *rtl_get_version_t)(PRTL_OSVERSIONINFOEXW);
+
+    RTL_OSVERSIONINFOEXW vinfo;
+    vinfo.dwOSVersionInfoSize = sizeof(RTL_OSVERSIONINFOEXW);
+
+    HMODULE module = GetModuleHandle("ntdll");
+    PVOID fun = GetProcAddress(module, "RtlGetVersion");
+    if (fun == NULL) {
+        error_setg(errp, "There is no RtlGetVersion");
+        return 0;
+    }
+
+    rtl_get_version_t rtl_get_version = (rtl_get_version_t)fun;
+    rtl_get_version(&vinfo);
+    return vinfo.dwBuildNumber;
+}
+#endif
+
 static int unix_listen_saddr(UnixSocketAddress *saddr,
                              int num,
                              Error **errp)
@@ -911,6 +945,13 @@ static int unix_listen_saddr(UnixSocketAddress *saddr,
     const char *path;
     size_t pathlen;
     size_t addrlen;
+
+#ifdef CONFIG_WIN32
+    if (qemu_get_win_build_number(errp) < WIN_VER_AF_UNIX) {
+        error_setg(errp, "Do not support AF_UNIX\n");
+        return -1;
+    }
+#endif
 
     sock = qemu_socket(PF_UNIX, SOCK_STREAM, 0);
     if (sock < 0) {
@@ -1004,6 +1045,13 @@ static int unix_connect_saddr(UnixSocketAddress *saddr, Error **errp)
         return -1;
     }
 
+#ifdef CONFIG_WIN32
+    if (qemu_get_win_build_number(errp) < WIN_VER_AF_UNIX) {
+        error_setg(errp, "Do not support AF_UNIX\n");
+        return -1;
+    }
+#endif
+
     sock = qemu_socket(PF_UNIX, SOCK_STREAM, 0);
     if (sock < 0) {
         error_setg_errno(errp, errno, "Failed to create socket");
@@ -1054,24 +1102,23 @@ static int unix_connect_saddr(UnixSocketAddress *saddr, Error **errp)
     return -1;
 }
 
-#else
-
+#else /* !QEMU_SOCKET_HAS_AFUNIX */
 static int unix_listen_saddr(UnixSocketAddress *saddr,
                              int num,
                              Error **errp)
 {
-    error_setg(errp, "unix sockets are not available on windows");
+    error_setg(errp, "unix sockets are not available");
     errno = ENOTSUP;
     return -1;
 }
 
 static int unix_connect_saddr(UnixSocketAddress *saddr, Error **errp)
 {
-    error_setg(errp, "unix sockets are not available on windows");
+    error_setg(errp, "unix sockets are not available");
     errno = ENOTSUP;
     return -1;
 }
-#endif
+#endif /* QEMU_SOCKET_HAS_AFUNIX */
 
 /* compatibility wrapper */
 int unix_listen(const char *str, Error **errp)
