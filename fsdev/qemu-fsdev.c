@@ -81,6 +81,7 @@ static FsDriverTable FsDrivers[] = {
             NULL
         },
     },
+
     {
         .name = "synth",
         .ops = &synth_ops,
@@ -89,6 +90,7 @@ static FsDriverTable FsDrivers[] = {
             NULL
         },
     },
+#ifndef CONFIG_WIN32
     {
         .name = "proxy",
         .ops = &proxy_ops,
@@ -100,6 +102,7 @@ static FsDriverTable FsDrivers[] = {
             NULL
         },
     },
+#endif
 };
 
 static int validate_opt(void *opaque, const char *name, const char *value,
