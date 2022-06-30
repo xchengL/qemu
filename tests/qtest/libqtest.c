@@ -13,18 +13,20 @@
  * This work is licensed under the terms of the GNU GPL, version 2 or later.
  * See the COPYING file in the top-level directory.
  */
-
 #include "qemu/osdep.h"
 
+#ifndef CONFIG_WIN32
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <sys/un.h>
+#endif
 #ifdef __linux__
 #include <sys/prctl.h>
 #endif /* __linux__ */
 
 #include "libqtest.h"
 #include "libqmp.h"
+#include "qemu/sockets.h"
 #include "qemu/ctype.h"
 #include "qemu/cutils.h"
 #include "qapi/qmp/qdict.h"
@@ -267,8 +269,20 @@ QTestState *qtest_init_without_qmp_handshake(const char *extra_args)
 
     s = g_new(QTestState, 1);
 
+#ifdef CONFIG_WIN32
+    if (socket_init() == -1) {
+        exit(1);
+    }
+    char temp_dir[MAX_PATH];
+    int ret = GetTempPath(MAX_PATH, temp_dir);
+    socket_path = g_strdup_printf("%sqtest-%d.sock",
+                                  ret != 0 ? temp_dir : "", getpid());
+    qmp_socket_path = g_strdup_printf("%sqtest-%d.qmp",
+                                  ret != 0 ? temp_dir : "", getpid());
+#else
     socket_path = g_strdup_printf("/tmp/qtest-%d.sock", getpid());
     qmp_socket_path = g_strdup_printf("/tmp/qtest-%d.qmp", getpid());
+#endif
 
     /* It's possible that if an earlier test run crashed it might
      * have left a stale unix socket lying around. Delete any
@@ -286,6 +300,26 @@ QTestState *qtest_init_without_qmp_handshake(const char *extra_args)
 
     qtest_add_abrt_handler(kill_qemu_hook_func, s);
 
+#ifdef CONFIG_WIN32
+    command = g_strdup_printf("%s %s"
+                              "-qtest unix:%s "
+                              "-qtest-log %s "
+                              "-chardev socket,path=%s,id=char0 "
+                              "-mon chardev=char0,mode=control "
+                              "-display none "
+                              "%s"
+                              " -accel qtest",
+                              qemu_binary, tracearg, socket_path,
+                              getenv("QTEST_LOG") ? "2" : "nul",
+                              qmp_socket_path,
+                              extra_args ?: "");
+
+    g_test_message("starting QEMU: %s", command);
+    s->pending_events = NULL;
+    s->wstatus = 0;
+    s->expected_status = 0;
+    s->qemu_pid = qemu_process_create(command);
+#else
     command = g_strdup_printf("exec %s %s"
                               "-qtest unix:%s "
                               "-qtest-log %s "
@@ -326,7 +360,7 @@ QTestState *qtest_init_without_qmp_handshake(const char *extra_args)
         execlp("/bin/sh", "sh", "-c", command, NULL);
         exit(1);
     }
-
+#endif /* CONFIG_WIN32 */
     g_free(command);
     s->fd = socket_accept(sock);
     if (s->fd >= 0) {
@@ -434,8 +468,9 @@ void qtest_quit(QTestState *s)
 
 static void socket_send(int fd, const char *buf, size_t size)
 {
-    size_t res = qemu_write_full(fd, buf, size);
+    ssize_t res = 0;
 
+    res = send(fd, buf, size, 0);
     assert(res == size);
 }
 
@@ -466,11 +501,10 @@ static GString *qtest_client_socket_recv_line(QTestState *s)
         ssize_t len;
         char buffer[1024];
 
-        len = read(s->fd, buffer, sizeof(buffer));
-        if (len == -1 && errno == EINTR) {
+        len = recv(s->fd, buffer, sizeof(buffer), 0);
+        if (len == -1 && (errno == EINTR)) {
             continue;
         }
-
         if (len == -1 || len == 0) {
             fprintf(stderr, "Broken pipe\n");
             abort();
@@ -746,7 +780,6 @@ const char *qtest_get_arch(void)
                 "etc).\n");
         exit(1);
     }
-
     return end + 1;
 }
 

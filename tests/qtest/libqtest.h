@@ -21,6 +21,10 @@
 #include "qapi/qmp/qdict.h"
 #include "libqmp.h"
 
+#ifdef CONFIG_WIN32
+#include "libwin32/win32-utils.h"
+#endif
+
 typedef struct QTestState QTestState;
 
 /**
