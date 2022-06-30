@@ -268,6 +268,7 @@ static const char *rmessage_name(uint8_t id)
         id == P9_RUNLINKAT ? "RUNLINKAT" :
         id == P9_RFLUSH ? "RFLUSH" :
         id == P9_RREADDIR ? "READDIR" :
+        id == P9_RCLUNK ? "RCLUNK" :
         "<unknown>";
 }
 
@@ -849,6 +850,7 @@ static void v9fs_rlcreate(P9Req *req, v9fs_qid *qid, uint32_t *iounit)
     v9fs_req_free(req);
 }
 
+#ifndef CONFIG_WIN32
 /* size[4] Tsymlink tag[2] fid[4] name[s] symtgt[s] gid[4] */
 static P9Req *v9fs_tsymlink(QVirtio9P *v9p, uint32_t fid, const char *name,
                             const char *symtgt, uint32_t gid, uint16_t tag)
@@ -908,6 +910,7 @@ static void v9fs_rlink(P9Req *req)
     v9fs_req_recv(req, P9_RLINK);
     v9fs_req_free(req);
 }
+#endif
 
 /* size[4] Tunlinkat tag[2] dirfd[4] name[s] flags[4] */
 static P9Req *v9fs_tunlinkat(QVirtio9P *v9p, uint32_t dirfd, const char *name,
@@ -935,6 +938,26 @@ static void v9fs_runlinkat(P9Req *req)
     v9fs_req_recv(req, P9_RUNLINKAT);
     v9fs_req_free(req);
 }
+
+#ifdef CONFIG_WIN32
+/* size[4] Tclunk tag[2] fid[4] */
+static P9Req *v9fs_tclunk(QVirtio9P *v9p, uint32_t fid, uint16_t tag)
+{
+    P9Req *req;
+
+    req = v9fs_req_init(v9p, 4, P9_TCLUNK, tag);
+    v9fs_uint32_write(req, fid);
+    v9fs_req_send(req);
+    return req;
+}
+
+/* size[4] Rclunk tag[2] */
+static void v9fs_rclunk(P9Req *req, uint16_t tag)
+{
+    v9fs_req_recv(req, P9_RCLUNK);
+    v9fs_req_free(req);
+}
+#endif
 
 /* basic readdir test where reply fits into a single response message */
 static void fs_readdir(void *obj, void *data, QGuestAllocator *t_alloc)
@@ -1323,18 +1346,30 @@ static uint32_t do_lcreate(QVirtio9P *v9p, const char *path,
                            const char *cname)
 {
     g_autofree char *name = g_strdup(cname);
-    uint32_t fid;
+    uint32_t fid, rfid;
     P9Req *req;
 
     fid = do_walk(v9p, path);
 
     req = v9fs_tlcreate(v9p, fid, name, 0, 0750, 0, 0);
     v9fs_req_wait_for_reply(req, NULL);
-    v9fs_rlcreate(req, NULL, NULL);
-
+    v9fs_rlcreate(req, NULL, &rfid);
     return fid;
 }
 
+/* clunk a regular file with Tlcreate and return file's fid */
+static void do_clunk(QVirtio9P *v9p, uint32_t fid)
+{
+#ifdef CONFIG_WIN32
+    P9Req *req;
+
+    req = v9fs_tclunk(v9p, fid, 0);
+    v9fs_req_wait_for_reply(req, NULL);
+    v9fs_rclunk(req, 0);
+#endif
+}
+
+#ifndef CONFIG_WIN32
 /* create symlink named @a clink in directory @a path pointing to @a to */
 static void do_symlink(QVirtio9P *v9p, const char *path, const char *clink,
                        const char *to)
@@ -1365,6 +1400,7 @@ static void do_hardlink(QVirtio9P *v9p, const char *path, const char *clink,
     v9fs_req_wait_for_reply(req, NULL);
     v9fs_rlink(req);
 }
+#endif
 
 static void do_unlinkat(QVirtio9P *v9p, const char *atpath, const char *rpath,
                         uint32_t flags)
@@ -1468,22 +1504,23 @@ static void fs_unlinkat_file(void *obj, void *data, QGuestAllocator *t_alloc)
     QVirtio9P *v9p = obj;
     alloc = t_alloc;
     struct stat st;
+    uint32_t fid = 0;
     g_autofree char *new_file = virtio_9p_test_path("04/doa_file");
 
     do_attach(v9p);
     do_mkdir(v9p, "/", "04");
-    do_lcreate(v9p, "04", "doa_file");
+    fid = do_lcreate(v9p, "04", "doa_file");
 
     /* check if created file exists now ... */
     g_assert(stat(new_file, &st) == 0);
     /* ... and is a regular file */
     g_assert((st.st_mode & S_IFMT) == S_IFREG);
-
+    do_clunk(v9p, fid);
     do_unlinkat(v9p, "04", "doa_file", 0);
     /* file should be gone now */
     g_assert(stat(new_file, &st) != 0);
 }
-
+#ifndef CONFIG_WIN32
 static void fs_symlink_file(void *obj, void *data, QGuestAllocator *t_alloc)
 {
     QVirtio9P *v9p = obj;
@@ -1575,6 +1612,7 @@ static void fs_unlinkat_hardlink(void *obj, void *data,
     /* and old file should still exist */
     g_assert(stat(real_file, &st_real) == 0);
 }
+#endif
 
 static void *assign_9p_local_driver(GString *cmd_line, void *arg)
 {
@@ -1633,12 +1671,14 @@ static void register_virtio_9p_test(void)
     qos_add_test("local/unlinkat_dir", "virtio-9p", fs_unlinkat_dir, &opts);
     qos_add_test("local/create_file", "virtio-9p", fs_create_file, &opts);
     qos_add_test("local/unlinkat_file", "virtio-9p", fs_unlinkat_file, &opts);
+#ifndef CONFIG_WIN32
     qos_add_test("local/symlink_file", "virtio-9p", fs_symlink_file, &opts);
     qos_add_test("local/unlinkat_symlink", "virtio-9p", fs_unlinkat_symlink,
                  &opts);
     qos_add_test("local/hardlink_file", "virtio-9p", fs_hardlink_file, &opts);
     qos_add_test("local/unlinkat_hardlink", "virtio-9p", fs_unlinkat_hardlink,
                  &opts);
+#endif
 }
 
 libqos_init(register_virtio_9p_test);
