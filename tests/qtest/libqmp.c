@@ -15,7 +15,6 @@
  */
 
 #include "qemu/osdep.h"
-
 #include "libqmp.h"
 
 #ifndef _WIN32
@@ -36,8 +35,9 @@ typedef struct {
 
 static void socket_send(int fd, const char *buf, size_t size)
 {
-    size_t res = qemu_write_full(fd, buf, size);
+    ssize_t res = 0;
 
+    res = send(fd, buf, size, 0);
     assert(res == size);
 }
 
@@ -68,9 +68,8 @@ QDict *qmp_fd_receive(int fd)
     while (!qmp.response) {
         ssize_t len;
         char c;
-
-        len = read(fd, &c, 1);
-        if (len == -1 && errno == EINTR) {
+        len = recv(fd, &c, 1, 0);
+        if (len == -1 && (errno == EINTR)) {
             continue;
         }
 
@@ -176,13 +175,11 @@ _qmp_fd_vsend_fds(int fd, int *fds, size_t fds_num,
     }
 }
 
-#ifndef _WIN32
 void qmp_fd_vsend_fds(int fd, int *fds, size_t fds_num,
                       const char *fmt, va_list ap)
 {
     _qmp_fd_vsend_fds(fd, fds, fds_num, fmt, ap);
 }
-#endif
 
 void qmp_fd_vsend(int fd, const char *fmt, va_list ap)
 {
