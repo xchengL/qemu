@@ -234,10 +234,19 @@ void virtio_9p_assign_local_driver(GString *cmd_line, const char *args)
     /* replace 'synth' driver by 'local' driver */
     regex_replace(cmd_line, "-fsdev synth,", "-fsdev local,");
 
+#ifdef CONFIG_WIN32
+    /*
+     * "\\" is a specific separator of g_regex_*, but it is also included in
+     *  windows path name, so replace the string on windows.
+     */
+    str_replace(cmd_line,
+                "-fsdev local,id=fsdev0", "%s,path=%s",
+                "-fsdev local,id=fsdev0", local_test_path);
+#else
     /* append 'path=...' to '-fsdev ...' group */
     regex_replace(cmd_line, "(-fsdev \\w[^ ]*)", "\\1,path='%s'",
                   local_test_path);
-
+#endif
     if (!args) {
         return;
     }
