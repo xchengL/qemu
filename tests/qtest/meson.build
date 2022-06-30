@@ -1,6 +1,6 @@
 # All QTests for now are POSIX-only, but the dependencies are
 # really in libqtest, not in the testcases themselves.
-if not config_host.has_key('CONFIG_POSIX')
+if not config_host.has_key('CONFIG_POSIX') and not config_host.has_key('CONFIG_WIN32')
   subdir_done()
 endif
 
@@ -115,7 +115,12 @@ else
   dbus_vmstate1 = []
 endif
 
-qtests_x86_64 = qtests_i386
+if config_host.has_key('CONFIG_WIN32')
+  subdir('libwin32')
+  qtests_x86_64 = []
+else
+  qtests_x86_64 = qtests_i386
+endif
 
 qtests_alpha = ['boot-serial-test'] + \
   ['test-filter-mirror', 'test-filter-redirector'] + \
@@ -232,6 +237,7 @@ qtests_s390x = \
    'migration-test']
 
 qos_test_ss = ss.source_set()
+if not config_host.has_key('CONFIG_WIN32')
 qos_test_ss.add(
   'ac97-test.c',
   'adm1272-test.c',
@@ -265,6 +271,8 @@ qos_test_ss.add(
   'virtio-iommu-test.c',
   'vmxnet3-test.c',
 )
+endif
+
 if have_virtfs
   qos_test_ss.add(files('virtio-9p-test.c'))
 endif
@@ -338,6 +346,9 @@ foreach dir : target_dirs
     if not qtest_executables.has_key(test)
       src = [test + '.c']
       deps = [qemuutil, qos]
+      if config_host.has_key('CONFIG_WIN32')
+        deps += [win32utils]
+      endif
       if test in qtests
         # use a sourceset to quickly separate sources and deps
         test_ss = ss.source_set()
