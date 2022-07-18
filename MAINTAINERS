@@ -165,8 +165,6 @@ F: tests/qtest/arm-cpu-features.c
 F: hw/arm/
 F: hw/cpu/a*mpcore.c
 F: include/hw/cpu/a*mpcore.h
-F: disas/arm-a64.cc
-F: disas/libvixl/
 F: docs/system/target-arm.rst
 F: docs/system/arm/cpu-features.rst
 
@@ -1067,6 +1065,7 @@ F: hw/net/ftgmac100.c
 F: include/hw/net/ftgmac100.h
 F: docs/system/arm/aspeed.rst
 F: tests/qtest/*aspeed*
+F: hw/arm/fby35.c
 
 NRF51
 M: Joel Stanley <joel@jms.id.au>
@@ -2751,6 +2750,7 @@ F: softmmu/cpu-throttle.c
 F: softmmu/cpu-timers.c
 F: softmmu/icount.c
 F: softmmu/runstate-action.c
+F: softmmu/runstate.c
 F: qapi/run-state.json
 
 Read, Copy, Update (RCU)
@@ -2881,6 +2881,7 @@ T: git https://repo.or.cz/qemu/armbru.git qapi-next
 
 QEMU Guest Agent
 M: Michael Roth <michael.roth@amd.com>
+R: Konstantin Kostiuk <kkostiuk@redhat.com>
 S: Maintained
 F: qga/
 F: docs/interop/qemu-ga.rst
@@ -3312,8 +3313,6 @@ M: Richard Henderson <richard.henderson@linaro.org>
 S: Maintained
 L: qemu-arm@nongnu.org
 F: tcg/aarch64/
-F: disas/arm-a64.cc
-F: disas/libvixl/
 
 ARM TCG target
 M: Richard Henderson <richard.henderson@linaro.org>
