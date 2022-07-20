@@ -58,6 +58,7 @@ libqos_srcs = files(
         'arm-xilinx-zynq-a9-machine.c',
         'ppc64_pseries-machine.c',
         'x86_64_pc-machine.c',
+        'riscv-virt-machine.c',
 )
 
 libqos = static_library('qos', libqos_srcs + genh,
