@@ -124,7 +124,7 @@ qio_channel_socket_source_check(GSource *source)
         return 0;
     }
 
-    WSAEnumNetworkEvents(ssource->socket, ssource->ioc->event, &ev);
+    WSAEnumNetworkEvents(ssource->socket, 0, &ev);
 
     FD_ZERO(&rfds);
     FD_ZERO(&wfds);
