@@ -588,6 +588,7 @@ static void test_hotplug_2_reverse(void)
     machine_stop(qts);
 }
 
+#ifndef _WIN32
 static QDict *migrate_status(QTestState *qts)
 {
     QDict *resp, *ret;
@@ -602,7 +603,9 @@ static QDict *migrate_status(QTestState *qts)
 
     return ret;
 }
+#endif
 
+#ifndef _WIN32
 static QDict *get_unplug_primary_event(QTestState *qts)
 {
     QDict *resp;
@@ -618,7 +621,9 @@ static QDict *get_unplug_primary_event(QTestState *qts)
 
     return data;
 }
+#endif
 
+#ifndef _WIN32
 static void test_migrate_out(gconstpointer opaque)
 {
     QTestState *qts;
@@ -734,7 +739,9 @@ static void test_migrate_out(gconstpointer opaque)
     qos_object_destroy((QOSGraphObject *)vdev);
     machine_stop(qts);
 }
+#endif
 
+#ifndef _WIN32
 static QDict *get_migration_event(QTestState *qts)
 {
     QDict *resp;
@@ -750,7 +757,9 @@ static QDict *get_migration_event(QTestState *qts)
 
     return data;
 }
+#endif
 
+#ifndef _WIN32
 static void test_migrate_in(gconstpointer opaque)
 {
     QTestState *qts;
@@ -814,7 +823,9 @@ static void test_migrate_in(gconstpointer opaque)
 
     machine_stop(qts);
 }
+#endif
 
+#ifndef _WIN32
 static void test_off_migrate_out(gconstpointer opaque)
 {
     QTestState *qts;
@@ -883,7 +894,9 @@ static void test_off_migrate_out(gconstpointer opaque)
     qos_object_destroy((QOSGraphObject *)vdev);
     machine_stop(qts);
 }
+#endif
 
+#ifndef _WIN32
 static void test_off_migrate_in(gconstpointer opaque)
 {
     QTestState *qts;
@@ -943,7 +956,9 @@ static void test_off_migrate_in(gconstpointer opaque)
 
     machine_stop(qts);
 }
+#endif
 
+#ifndef _WIN32
 static void test_guest_off_migrate_out(gconstpointer opaque)
 {
     QTestState *qts;
@@ -1021,7 +1036,9 @@ static void test_guest_off_migrate_out(gconstpointer opaque)
     qos_object_destroy((QOSGraphObject *)vdev);
     machine_stop(qts);
 }
+#endif
 
+#ifndef _WIN32
 static void test_guest_off_migrate_in(gconstpointer opaque)
 {
     QTestState *qts;
@@ -1081,7 +1098,9 @@ static void test_guest_off_migrate_in(gconstpointer opaque)
 
     machine_stop(qts);
 }
+#endif
 
+#ifndef _WIN32
 static void test_migrate_guest_off_abort(gconstpointer opaque)
 {
     QTestState *qts;
@@ -1182,7 +1201,9 @@ out:
     qos_object_destroy((QOSGraphObject *)vdev);
     machine_stop(qts);
 }
+#endif
 
+#ifndef _WIN32
 static void test_migrate_abort_wait_unplug(gconstpointer opaque)
 {
     QTestState *qts;
@@ -1271,7 +1292,9 @@ static void test_migrate_abort_wait_unplug(gconstpointer opaque)
     qos_object_destroy((QOSGraphObject *)vdev);
     machine_stop(qts);
 }
+#endif
 
+#ifndef _WIN32
 static void test_migrate_abort_active(gconstpointer opaque)
 {
     QTestState *qts;
@@ -1370,7 +1393,9 @@ out:
     qos_object_destroy((QOSGraphObject *)vdev);
     machine_stop(qts);
 }
+#endif
 
+#ifndef _WIN32
 static void test_migrate_off_abort(gconstpointer opaque)
 {
     QTestState *qts;
@@ -1461,7 +1486,9 @@ out:
     qos_object_destroy((QOSGraphObject *)vdev);
     machine_stop(qts);
 }
+#endif
 
+#ifndef _WIN32
 static void test_migrate_abort_timeout(gconstpointer opaque)
 {
     QTestState *qts;
@@ -1552,7 +1579,9 @@ static void test_migrate_abort_timeout(gconstpointer opaque)
     qos_object_destroy((QOSGraphObject *)vdev);
     machine_stop(qts);
 }
+#endif
 
+#ifndef _WIN32
 static void test_multi_out(gconstpointer opaque)
 {
     QTestState *qts;
@@ -1723,7 +1752,9 @@ static void test_multi_out(gconstpointer opaque)
     qos_object_destroy((QOSGraphObject *)vdev1);
     machine_stop(qts);
 }
+#endif
 
+#ifndef _WIN32
 static void test_multi_in(gconstpointer opaque)
 {
     QTestState *qts;
@@ -1827,6 +1858,7 @@ static void test_multi_in(gconstpointer opaque)
 
     machine_stop(qts);
 }
+#endif
 
 int main(int argc, char **argv)
 {
@@ -1858,6 +1890,8 @@ int main(int argc, char **argv)
                    test_hotplug_2_reverse);
 
     /* migration tests */
+#ifndef _WIN32
+    /* These cases requires exec migration, that is unsupported on windows. */
     qtest_add_data_func("failover-virtio-net/migrate/on/out", tmpfile,
                         test_migrate_out);
     qtest_add_data_func("failover-virtio-net/migrate/on/in", tmpfile,
@@ -1886,6 +1920,7 @@ int main(int argc, char **argv)
                         tmpfile, test_multi_out);
     qtest_add_data_func("failover-virtio-net/migrate/multi/in",
                    tmpfile, test_multi_in);
+#endif
 
     ret = g_test_run();
 
