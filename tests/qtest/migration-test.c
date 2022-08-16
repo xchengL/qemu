@@ -40,6 +40,10 @@
 #include "linux/kvm.h"
 #endif
 
+#ifdef _WIN32
+#include <share.h>
+#endif
+
 /* TODO actually test the results and get rid of this */
 #define qtest_qmp_discard_response(...) qobject_unref(qtest_qmp(__VA_ARGS__))
 
@@ -138,7 +142,12 @@ static void init_bootfile(const char *bootpath, void *content, size_t len)
 static void wait_for_serial(const char *side)
 {
     g_autofree char *serialpath = g_strdup_printf("%s/%s", tmpfs, side);
+#ifndef _WIN32
     FILE *serialfile = fopen(serialpath, "r");
+#else
+    /* It's better to use _fsopen() to open the sharing file on windows. */
+    FILE *serialfile = _fsopen(serialpath, "r", SH_DENYNO);
+#endif
     const char *arch = qtest_get_arch();
     int started = (strcmp(side, "src_serial") == 0 &&
                    strcmp(arch, "ppc64") == 0) ? 0 : 1;
