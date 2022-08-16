@@ -1,4 +1,9 @@
 #include "qemu/osdep.h"
+
+#ifndef CONFIG_WIN32
+#include <sys/wait.h>
+#endif
+
 #include "../libqtest.h"
 #include "libqos.h"
 #include "pci.h"

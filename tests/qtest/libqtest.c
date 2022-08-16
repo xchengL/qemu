@@ -214,6 +214,7 @@ void qtest_kill_qemu(QTestState *s)
 #else
     GetExitCodeProcess((HANDLE)pid, &exit_code);
     CloseHandle((HANDLE)pid);
+
     if (exit_code != s->expected_status) {
         fprintf(stderr, "%s:%d: kill_qemu() tried to terminate QEMU "
                 "process but encountered exit status %ld (expected %d)\n",
