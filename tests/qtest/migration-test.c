@@ -2132,6 +2132,16 @@ static void test_multifd_tcp_cancel(void)
     wait_for_migration_pass(from);
 
     migrate_cancel(from);
+#ifdef _WIN32
+    /* The QEMU process of "to" created "dest_serial" via CreateFile() with
+     * "FILE_SHARE_READ" and "CREATE_ALWAYS" option. Let us kill the QEMU
+     * process of "to" if it is alived after "migrate_cancel", otherwise the
+     * QEMU process "to2" will fail in CreateFile() with the same option.
+     */
+    if(qtest_probe_child(to)) {
+        qtest_kill_qemu(to);
+    }
+#endif
 
     args = (MigrateStart){
         .only_target = true,
