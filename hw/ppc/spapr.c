@@ -1522,7 +1522,9 @@ int spapr_hpt_shift_for_ramsize(uint64_t ramsize)
 
 void spapr_free_hpt(SpaprMachineState *spapr)
 {
-    g_free(spapr->htab);
+
+    /* spapr->htab is allocated by qemu_memalign(), should use qemu_vfree() */
+    qemu_vfree(spapr->htab);
     spapr->htab = NULL;
     spapr->htab_shift = 0;
     close_htab_fd(spapr);
