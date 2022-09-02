@@ -19,6 +19,7 @@
 
 #include "qemu/osdep.h"
 #include <getopt.h>
+#include <glib/gstdio.h>
 #include <sys/reboot.h>
 #include <sys/syscall.h>
 #include <linux/random.h>
@@ -232,7 +233,7 @@ static void stress(unsigned long long ramsizeGB, int ncpus)
 
 static int mount_misc(const char *fstype, const char *dir)
 {
-    if (g_mkdir_with_parents(dir, 0755) < 0 && errno != EEXIST) {
+    if (g_mkdir(dir, 0755) < 0 && errno != EEXIST) {
         fprintf(stderr, "%s (%05d): ERROR: cannot create %s: %s\n",
                 argv0, gettid(), dir, strerror(errno));
         return -1;
