@@ -1774,6 +1774,7 @@ static const TypeInfo pnv_phb4_root_bus_info = {
     .name = TYPE_PNV_PHB4_ROOT_BUS,
     .parent = TYPE_PCIE_BUS,
     .class_init = pnv_phb4_root_bus_class_init,
+    .instance_size = sizeof(PnvPHB4RootBus),
 };
 
 static void pnv_phb4_register_types(void)
