@@ -27,7 +27,7 @@
 #include "qemu/module.h"
 
 #ifndef DEBUG_IMX_I2C
-#define DEBUG_IMX_I2C 0
+#define DEBUG_IMX_I2C 1
 #endif
 
 #define DPRINTF(fmt, args...) \
@@ -105,6 +105,8 @@ static uint64_t imx_i2c_read(void *opaque, hwaddr offset,
 {
     uint16_t value;
     IMXI2CState *s = IMX_I2C(opaque);
+    DPRINTF("Next to read %s [0x%" HWADDR_PRIx "]\n",
+            imx_i2c_get_regname(offset), offset);
 
     switch (offset) {
     case IADR_ADDR:

@@ -18,6 +18,7 @@
 #include "hw/qdev-properties.h"
 #include "qemu/error-report.h"
 #include "sysemu/qtest.h"
+#include "hw/i2c/i2c.h"
 
 static struct arm_boot_info sabrelite_binfo = {
     /* DDR memory start */
@@ -89,6 +90,15 @@ static void sabrelite_init(MachineState *machine)
 
                 cs_line = qdev_get_gpio_in_named(flash_dev, SSI_GPIO_CS, 0);
                 qdev_connect_gpio_out(DEVICE(&s->gpio[2]), 19, cs_line);
+            }
+        }
+        Object *i2c_dev;
+        i2c_dev = object_resolve_path_component(OBJECT(s), "i2c1");
+        if (i2c_dev) {
+            I2CBus *i2c_bus;
+            i2c_bus = (I2CBus *)qdev_get_child_bus(DEVICE(i2c_dev), "i2c");
+            if (i2c_bus) {
+                i2c_slave_create_simple (i2c_bus, "ds1338", 0x68);
             }
         }
     }
